@@ -912,6 +912,27 @@
                     }
                 }
             }
+        },
+        "page": {
+            "display_title": "Page",
+            "display_plugin": "page",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "path": "admin/content/entity-forum/replies",
+                "menu": {
+                    "type": "tab",
+                    "title": "Replies",
+                    "description": "",
+                    "name": "management",
+                    "weight": "1",
+                    "context": 0,
+                    "context_only_inline": 0
+                },
+                "display_comment": "Provides the Replies tab at admin/content/entity-forum/replies. entity_forum_views_pre_render() attaches css/entity_forum_admin.css and strips HTML from the Content column (the Views strip-tags rewrite would strip the make-link too)."
+            }
         }
     }
 }

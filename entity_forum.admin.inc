@@ -119,29 +119,6 @@ function entity_forum_admin_topics() {
 }
 
 /**
- * Page callback: admin overview of replies.
- *
- * @return string
- *   The embedded forum_replies_admin view (filterable table + pager).
- */
-function entity_forum_admin_replies() {
-  // The overview is the forum_replies_admin view (shipped in config/,
-  // built by Steve 2026-07-15), embedded so the columns and exposed
-  // filters stay adjustable at admin/structure/views. The content
-  // column's HTML is stripped in entity_forum_views_pre_render().
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
-  $view = views_get_view('forum_replies_admin');
-  if (!$view) {
-    return t('The forum_replies_admin view is missing or disabled.');
-  }
-  // The view has no page display of its own, so anchor generated URLs
-  // (notably the exposed-filter form action) to this tab — without
-  // this the Apply button submits to the front page.
-  $view->override_url = current_path();
-  return $view->preview('default');
-}
-
-/**
  * Builds the edit/delete operations cell for admin overview tables.
  *
  * @param string $type

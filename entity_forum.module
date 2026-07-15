@@ -608,13 +608,10 @@ function entity_forum_menu() {
     'type' => MENU_LOCAL_TASK,
     'file' => 'entity_forum.admin.inc',
   );
-  $items['admin/content/entity-forum/replies'] = array(
-    'title' => 'Replies',
-    'page callback' => 'entity_forum_admin_replies',
-    'access arguments' => array('administer entity forum reply'),
-    'type' => MENU_LOCAL_TASK,
-    'file' => 'entity_forum.admin.inc',
-  );
+  // The Replies tab (admin/content/entity-forum/replies) is provided by
+  // the forum_replies_admin view's page display (a local task), so site
+  // builders can adjust its columns, filters, path and title through the
+  // Views UI. See config/views.view.forum_replies_admin.json.
   $items['admin/content/entity-forum/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
@@ -2675,13 +2672,16 @@ function entity_forum_posting_name_save($account, $posting_name) {
 /**
  * Implements hook_views_pre_render().
  *
- * Strips HTML from the content column of the admin replies view before
- * the field is rewritten. The Views "Strip HTML tags" rewrite option
- * can't be used there: the column is rewritten into a link, and the
- * strip runs after the rewrite — it would strip the link itself.
+ * For the admin replies view (which provides the Replies tab via its own
+ * page display): attaches the admin stylesheet — so it follows the view
+ * wherever it is shown, including a site builder's clone — and strips
+ * HTML from the content column. The Views "Strip HTML tags" rewrite
+ * option can't do the strip: the column is rewritten into a link and the
+ * strip runs after the rewrite, so it would remove the link itself.
  */
 function entity_forum_views_pre_render(&$view) {
   if ($view->name == 'forum_replies_admin') {
+    backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
     foreach ($view->result as $row) {
       if (isset($row->entity_forum_reply_content)) {
         $row->entity_forum_reply_content = strip_tags($row->entity_forum_reply_content);
