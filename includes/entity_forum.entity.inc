@@ -91,6 +91,14 @@ class EntityForumForum extends Entity {
   public $author_close = 0;
 
   /**
+   * Whether the forum appears in the forums index and sub-forum lists
+   * (1 = listed). Unlisted forums stay usable at their own URL; this is
+   * independent of $status (published).
+   * @var int
+   */
+  public $listed = 1;
+
+  /**
    * Constructs a forum, filling runtime defaults for new entities.
    *
    * @param array $values

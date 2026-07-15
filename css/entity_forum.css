@@ -166,7 +166,22 @@ p.entity-forum-attachment-filename {
     padding: 1.5em;
     max-width: 640px;
     width: 90%;
+    /* Let a tall WYSIWYG editor breathe; scroll the dialog if it would
+       run past the viewport rather than clipping the editable area. */
+    max-height: 90vh;
+    overflow-y: auto;
     box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.4);
+}
+/* Give the CKEditor editable region a comfortable floor inside the modal.
+   CKEditor 5 uses .ck-editor__editable; the older .cke_contents covers
+   CKEditor 4. min-height is roomy regardless of the form's #rows. */
+.entity-forum-dialog .ck-editor__editable_inline,
+.entity-forum-dialog .cke_contents {
+    min-height: 320px;
+}
+/* No-editor fallback: keep the reply textarea itself tall in the modal. */
+.entity-forum-dialog textarea[id*="edit-content"] {
+    min-height: 300px;
 }
 .entity-forum-dialog::backdrop {
     background: rgba(0, 0, 0, 0.5);

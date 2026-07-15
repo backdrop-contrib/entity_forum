@@ -15,7 +15,7 @@
  *   Render array.
  */
 function entity_forum_forums_page() {
-  $forums = db_query('SELECT forum_id, title, description, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 ORDER BY weight, title')->fetchAll();
+  $forums = db_query('SELECT forum_id, title, description, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 AND listed = 1 ORDER BY weight, title')->fetchAll();
 
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
   // Filter out private forums the user may not see, then group by parent.
@@ -148,7 +148,7 @@ function entity_forum_forum_page($forum) {
   // Sub-forums, if any: full rows with topic/post counts and last
   // activity (rolled up to include their own sub-forums), matching the
   // forums index rather than a plain bullet list.
-  $subforums = db_query('SELECT forum_id, title, description, visibility FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
+  $subforums = db_query('SELECT forum_id, title, description, visibility FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 AND listed = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
   $counts = entity_forum_forum_counts();
   $subforum_rows = array();
   foreach ($subforums as $subforum) {
@@ -258,13 +258,17 @@ function entity_forum_topic_page($topic) {
       '#markup' => '<div class="entity-forum-node-link">' . t('This discussion belongs to !link.', array(
         '!link' => l($discussion_node->title, 'node/' . $discussion_node->nid),
       )) . '</div>',
+      '#weight' => -20,
     );
   }
 
-  // The opening post.
+  // The opening post. Explicit #weight keeps it above the reply section:
+  // the dialog element in the shared reply build triggers an unstable
+  // sort of all siblings (see _entity_forum_topic_replies_build()).
   $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
   $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
   $build['topic'] = array(
+    '#weight' => 0,
     '#prefix' => '<div class="entity-forum-topic-wrapper"><h2 class="entity-forum-topic-title">' . check_plain($topic->title) . '</h2>',
     '#suffix' => '</div>',
     '#markup' => _entity_forum_render_post(
@@ -382,8 +386,13 @@ function _entity_forum_topic_replies_build($topic) {
       $items .= $is_child ? '<div class="entity-forum-reply-child">' . $post . '</div>' : $post;
     }
   }
-  $build['replies'] = array('#markup' => $items);
-  $build['pager'] = array('#theme' => 'pager');
+  // Explicit weights: the dialog carries a #weight, which makes
+  // element_children() sort ALL siblings via backdrop_sort() /
+  // array_multisort() — an unstable sort that would otherwise scramble
+  // equal-weight (weightless) siblings and float the replies above the
+  // opening post. Weighting every element keeps the order deterministic.
+  $build['replies'] = array('#markup' => $items, '#weight' => 10);
+  $build['pager'] = array('#theme' => 'pager', '#weight' => 20);
 
   // Reply call to action. The inline bottom form is gone: each post has
   // a "Reply" link (modal via htmx, standalone page without JS), and
@@ -391,6 +400,7 @@ function _entity_forum_topic_replies_build($topic) {
   if ($topic->closed) {
     $build['closed'] = array(
       '#markup' => '<div class="entity-forum-closed">' . t('This topic is closed to new replies.') . '</div>',
+      '#weight' => 30,
     );
   }
   elseif (entity_forum_reply_create_access($topic)) {
@@ -399,12 +409,14 @@ function _entity_forum_topic_replies_build($topic) {
       '#markup' => '<div class="entity-forum-actions">' . l(t('Reply to this topic'), $reply_path, array(
         'attributes' => _entity_forum_modal_link_attributes(url($reply_path)) + array('class' => array('entity-forum-reply-link', 'button')),
       )) . '</div>',
+      '#weight' => 30,
     );
   }
   elseif (user_is_logged_in() && user_access('create entity forum reply')
     && entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_SUSPENDED) {
     $build['suspended'] = array(
       '#markup' => '<div class="entity-forum-suspended">' . t('Your forum posting privileges are currently suspended.') . '</div>',
+      '#weight' => 30,
     );
   }
   elseif (user_is_anonymous()) {
@@ -412,6 +424,7 @@ function _entity_forum_topic_replies_build($topic) {
       '#markup' => '<div class="entity-forum-login">' . t('<a href="@login">Log in</a> to reply.', array(
         '@login' => url('user/login', array('query' => backdrop_get_destination())),
       )) . '</div>',
+      '#weight' => 30,
     );
   }
 
@@ -464,15 +477,20 @@ function entity_forum_node_discussion_build($topic) {
     '#weight' => 100,
   );
   $count = (int) $topic->reply_count;
+  // Explicit weights keep heading → opening post → replies ordered; the
+  // shared reply build's dialog element forces an unstable sibling sort
+  // (see _entity_forum_topic_replies_build()).
   $build['heading'] = array(
     '#markup' => '<h2 class="entity-forum-discussion-heading">' . ($count
       ? format_plural($count, 'Discussion (1 reply)', 'Discussion (@count replies)')
       : t('Discussion')) . '</h2>',
+    '#weight' => -20,
   );
   if (trim((string) $topic->content) !== '') {
     $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
     $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
     $build['opening'] = array(
+      '#weight' => 0,
       '#markup' => _entity_forum_render_post(
         $topic->content,
         $topic->format,

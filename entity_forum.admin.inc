@@ -14,41 +14,41 @@
 function entity_forum_admin_forums() {
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
 
+  // Hierarchical, not sortable: forums are shown depth-first so children
+  // sit under their parent, matching the front-end index. Siblings are
+  // ordered by weight then title (the same order used on the index).
   $header = array(
-    array('data' => t('Title'), 'field' => 'title', 'sort' => 'asc'),
+    t('Title'),
     t('Parent'),
     t('Visibility'),
     t('Topics'),
     t('Status'),
+    t('Listed'),
     t('Operations'),
   );
 
-  $query = db_select('entity_forum_forum', 'f')
-    ->extend('TableSort')
-    ->fields('f', array('forum_id', 'title', 'parent_id', 'visibility', 'status'))
-    ->orderByHeader($header);
-  $result = $query->execute();
-
-  $forums_by_id = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
+  // Every forum (published or not, listed or not) — admins see them all.
+  $forums = db_query('SELECT forum_id, title, parent_id, visibility, status, listed FROM {entity_forum_forum} ORDER BY weight, title')->fetchAll();
+  $forums_by_id = array();
+  $children = array();
+  foreach ($forums as $forum) {
+    $forums_by_id[$forum->forum_id] = $forum->title;
+    $children[$forum->parent_id][] = $forum;
+  }
 
   $rows = array();
-  foreach ($result as $forum) {
-    $rows[] = array(
-      l($forum->title, 'forum/' . $forum->forum_id),
-      $forum->parent_id ? check_plain($forums_by_id[$forum->parent_id] ?? t('Missing (@id)', array('@id' => $forum->parent_id))) : t('- None -'),
+  $emitted = array();
+  _entity_forum_admin_forum_rows($children, 0, 0, $rows, $emitted, $forums_by_id);
 
-      //'<span class="forum-visibility">' . check_plain($forum->visibility) . '</span>',
-      ($forum->visibility === 'public') ?
-        '<span class="forum-public">' . t('Public') . '</span>' :
-        '<span class="forum-private">' . t('Private') . '</span>',
-
-      '<div class="forum-id">' . entity_forum_forum_topic_count($forum->forum_id) . '</div>',
-
-      $forum->status ? '<span class="forum-published">' . t('Published') . '</span>' :
-        '<span class="forum-unpublished">' . t('Unpublished') . '</span>',
-
-        _entity_forum_admin_operations('forum', $forum->forum_id),
-    );
+  // Orphans (parent forum deleted) are never reached from the root walk;
+  // append each as a top-level row so admins always see every forum. The
+  // Parent column flags them as "Missing (@id)".
+  foreach ($forums as $forum) {
+    if (!isset($emitted[$forum->forum_id])) {
+      $emitted[$forum->forum_id] = TRUE;
+      $rows[] = _entity_forum_admin_forum_row($forum, 0, $forums_by_id);
+      _entity_forum_admin_forum_rows($children, $forum->forum_id, 1, $rows, $emitted, $forums_by_id);
+    }
   }
 
   return theme('table', array(
@@ -58,6 +58,78 @@ function entity_forum_admin_forums() {
       '@add' => url('admin/content/entity-forum/forums/add'),
     )),
   ));
+}
+
+/**
+ * Emits admin forum table rows depth-first so children follow parents.
+ *
+ * @param array $children
+ *   Forums grouped by parent_id (each an object with forum_id, title,
+ *   parent_id, visibility, status, listed).
+ * @param int $parent_id
+ *   Parent whose children are being emitted.
+ * @param int $depth
+ *   Current nesting depth (indents the title cell).
+ * @param array $rows
+ *   Table rows, built by reference.
+ * @param array $emitted
+ *   forum_id => TRUE for forums already emitted, by reference — guards
+ *   against a cyclic parent chain and drives orphan detection.
+ * @param array $forums_by_id
+ *   forum_id => title, for the Parent column.
+ */
+function _entity_forum_admin_forum_rows(array $children, $parent_id, $depth, array &$rows, array &$emitted, array $forums_by_id) {
+  if (empty($children[$parent_id])) {
+    return;
+  }
+  foreach ($children[$parent_id] as $forum) {
+    if (isset($emitted[$forum->forum_id])) {
+      // Already shown — a cyclic parent chain would otherwise loop.
+      continue;
+    }
+    $emitted[$forum->forum_id] = TRUE;
+    $rows[] = _entity_forum_admin_forum_row($forum, $depth, $forums_by_id);
+    _entity_forum_admin_forum_rows($children, $forum->forum_id, $depth + 1, $rows, $emitted, $forums_by_id);
+  }
+}
+
+/**
+ * Builds a single admin forum overview row.
+ *
+ * @param object $forum
+ *   Forum record (forum_id, title, parent_id, visibility, status, listed).
+ * @param int $depth
+ *   Nesting depth; indents the title so the hierarchy reads at a glance.
+ * @param array $forums_by_id
+ *   forum_id => title, for the Parent column.
+ *
+ * @return array
+ *   The table row cells.
+ */
+function _entity_forum_admin_forum_row($forum, $depth, array $forums_by_id) {
+  $title = l($forum->title, 'forum/' . $forum->forum_id);
+  if ($depth > 0) {
+    $title = '<span style="padding-left: ' . ($depth * 24) . 'px">' . $title . '</span>';
+  }
+
+  return array(
+    $title,
+    $forum->parent_id ? check_plain($forums_by_id[$forum->parent_id] ?? t('Missing (@id)', array('@id' => $forum->parent_id))) : t('- None -'),
+
+    ($forum->visibility === 'public') ?
+      '<span class="forum-public">' . t('Public') . '</span>' :
+      '<span class="forum-private">' . t('Private') . '</span>',
+
+    '<div class="forum-id">' . entity_forum_forum_topic_count($forum->forum_id) . '</div>',
+
+    $forum->status ? '<span class="forum-published">' . t('Published') . '</span>' :
+      '<span class="forum-unpublished">' . t('Unpublished') . '</span>',
+
+    $forum->listed ? '<span class="forum-published">' . t('Listed') . '</span>' :
+      '<span class="forum-unpublished">' . t('Unlisted') . '</span>',
+
+    _entity_forum_admin_operations('forum', $forum->forum_id),
+  );
 }
 
 /**
@@ -215,7 +287,14 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['status'] = array(
     '#type' => 'checkbox',
     '#title' => t('Published'),
+    '#description' => t('Unpublished forums are hidden from the lists and accept no new topics, but the forum page stays viewable.'),
     '#default_value' => $forum->status,
+  );
+  $form['listed'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Appear in forum list'),
+    '#description' => t('When unticked, the forum is hidden from the forums index and sub-forum lists but stays fully usable at its own URL — for a forum you feature under its own menu link. Independent of Published.'),
+    '#default_value' => !empty($forum->listed),
   );
   $form['author_close'] = array(
     '#type' => 'checkbox',
@@ -257,6 +336,7 @@ function entity_forum_forum_form_submit($form, &$form_state) {
   $forum->visibility = $values['visibility'];
   $forum->weight = (int) $values['weight'];
   $forum->status = (int) $values['status'];
+  $forum->listed = (int) !empty($values['listed']);
   $forum->author_close = (int) !empty($values['author_close']);
   $forum->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_forum', $forum, $form, $form_state);
