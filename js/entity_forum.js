@@ -4,8 +4,9 @@
  *
  * The per-post "Reply" links carry hx-get/hx-target attributes that load
  * the reply form fragment into #entity-forum-dialog-content; this file
- * opens/closes the native <dialog> around those swaps. Without JS the
- * links navigate to the standalone form page instead.
+ * opens/closes the native <dialog> around those swaps and keeps Backdrop
+ * behaviors (notably the text-format WYSIWYG editor) working on swapped
+ * content. Without JS the links navigate to the standalone form page.
  */
 (function (Backdrop) {
   'use strict';
@@ -17,12 +18,58 @@
         return;
       }
       dialog.dataset.entityForumProcessed = '1';
+      var content = document.getElementById('entity-forum-dialog-content');
 
-      // Open the dialog whenever htmx swaps content into it (reply link
-      // clicked, or a validation-error re-render while already open).
+      // Old fragment content (e.g. a WYSIWYG instance) must be detached
+      // cleanly before htmx replaces it with a new fragment.
+      document.body.addEventListener('htmx:beforeSwap', function (event) {
+        if (event.detail.target === content) {
+          Backdrop.detachBehaviors(content);
+        }
+      });
+
+      // Wire Backdrop behaviors onto the swapped-in form — this is what
+      // initializes the text-format editor, whose libraries and settings
+      // the topic page preloads — then open the dialog (a validation
+      // error re-render swaps while it is already open).
       document.body.addEventListener('htmx:afterSwap', function (event) {
-        if (event.detail.target && event.detail.target.id === 'entity-forum-dialog-content' && !dialog.open) {
-          dialog.showModal();
+        if (event.detail.target === content) {
+          Backdrop.attachBehaviors(content, Backdrop.settings);
+          if (!dialog.open) {
+            dialog.showModal();
+          }
+        }
+      });
+
+      // Sync WYSIWYG editors back into their textareas before htmx
+      // serializes the form. filter.js does this on submit itself, but
+      // only when the event was NOT default-prevented — and htmx
+      // prevents it. Capture phase runs before htmx's own listener.
+      document.addEventListener('submit', function (event) {
+        if (content.contains(event.target)) {
+          Backdrop.detachBehaviors(event.target, Backdrop.settings, 'serialize');
+        }
+      }, true);
+
+      // Successful post: the server sends X-EntityForum-Redirect (not
+      // HX-Redirect — a same-page #fragment redirect would only scroll,
+      // never reload, leaving the dialog open and the new reply
+      // invisible). Close, navigate, and force a reload when the path
+      // is unchanged.
+      document.body.addEventListener('htmx:afterRequest', function (event) {
+        var xhr = event.detail.xhr;
+        var redirect = xhr && xhr.getResponseHeader('X-EntityForum-Redirect');
+        if (!redirect) {
+          return;
+        }
+        if (dialog.open) {
+          dialog.close();
+        }
+        var targetPath = redirect.split('#')[0];
+        var currentPath = window.location.pathname + window.location.search;
+        window.location.href = redirect;
+        if (targetPath === '' || targetPath === currentPath) {
+          window.location.reload();
         }
       });
 
@@ -37,9 +84,11 @@
         }
       });
 
-      // Stale form fragments must not linger for the next open.
+      // Stale form fragments must not linger for the next open; detach
+      // behaviors (destroys editor instances) before discarding.
       dialog.addEventListener('close', function () {
-        document.getElementById('entity-forum-dialog-content').innerHTML = '';
+        Backdrop.detachBehaviors(content);
+        content.innerHTML = '';
       });
     }
   };

@@ -349,6 +349,16 @@ function entity_forum_topic_page($topic) {
       '#markup' => '<dialog id="entity-forum-dialog" class="entity-forum-dialog"><button type="button" class="entity-forum-dialog-close" aria-label="' . t('Close') . '">&times;</button><div id="entity-forum-dialog-content"></div></dialog>',
       '#weight' => 100,
     );
+
+    // Register the reply form's assets on THIS page without printing
+    // the form: building + rendering pulls in the text-format editor
+    // libraries and their Backdrop.settings (keyed by format, not by
+    // element), so when htmx swaps the form fragment into the dialog,
+    // Backdrop.attachBehaviors() finds everything already loaded and
+    // the WYSIWYG editor initializes. The rendered markup is discarded
+    // deliberately — printing it would duplicate the fragment's IDs.
+    $assets_form = backdrop_get_form('entity_forum_reply_frontend_form', $topic);
+    backdrop_render($assets_form);
   }
 
   // Let other modules alter the topic page (posts, reply form and all).
@@ -782,9 +792,15 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   backdrop_set_message(t('Your reply has been posted.'));
 
   if (_entity_forum_is_htmx_request()) {
-    // Direct header(): backdrop_add_http_header() queues headers for
-    // page delivery, which this early exit bypasses.
-    header('HX-Redirect: ' . url('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id())));
+    // Custom header instead of HX-Redirect: the redirect target is
+    // usually the page the user is already on plus a #reply-N fragment,
+    // and htmx's HX-Redirect just assigns location.href — a hash-only
+    // change scrolls without reloading, leaving the dialog open and the
+    // new reply invisible. The module's JS closes the dialog and forces
+    // a real reload when the path is unchanged. Direct header():
+    // backdrop_add_http_header() queues for page delivery, which this
+    // early exit bypasses.
+    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id())));
     backdrop_exit();
   }
 
