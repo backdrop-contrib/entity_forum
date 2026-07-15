@@ -234,7 +234,7 @@ function entity_forum_topic_page($topic) {
       $topic->author_uid,
       $topic->created,
       'topic-' . $topic->id(),
-      _entity_forum_post_links('topic', $topic),
+      _entity_forum_post_links('topic', $topic, $topic),
       '',
       entity_forum_post_attachments('entity_forum_topic', $topic->id()),
       $topic->author_name,
@@ -242,51 +242,94 @@ function entity_forum_topic_page($topic) {
     ),
   );
 
-  // Replies, oldest first.
-  $query = db_select('entity_forum_reply', 'r')
-    ->extend('PagerDefault')
-    ->fields('r')
-    ->condition('r.topic_id', $topic->id())
-    ->condition('r.status', 1)
-    ->orderBy('r.created', 'ASC')
-    ->orderBy('r.reply_id', 'ASC')
-    ->limit(50);
-  $replies = $query->execute()->fetchAllAssoc('reply_id');
+  // Replies, threaded Facebook-style: one visual level — every reply in
+  // a chain nests under its thread root, indented once. The pager works
+  // on thread roots (50 per page) so a thread is never split across
+  // pages. The id/parent map for the whole topic is loaded first (cheap:
+  // three small columns), threads are grouped in PHP, then only the
+  // visible page's entities are fully loaded.
+  $all = db_query('SELECT reply_id, reply_to_id, created FROM {entity_forum_reply} WHERE topic_id = :tid AND status = 1 ORDER BY created ASC, reply_id ASC', array(
+    ':tid' => $topic->id(),
+  ))->fetchAllAssoc('reply_id');
+
+  $roots = array();
+  $threads = array();
+  foreach ($all as $reply_id => $row) {
+    $root_id = _entity_forum_reply_thread_root($reply_id, $all);
+    if ($root_id == $reply_id) {
+      $roots[] = $reply_id;
+      if (!isset($threads[$reply_id])) {
+        $threads[$reply_id] = array();
+      }
+    }
+    else {
+      $threads[$root_id][] = $reply_id;
+    }
+  }
+
+  $per_page = 50;
+  $page = pager_default_initialize(count($roots), $per_page);
+  $page_roots = array_slice($roots, $page * $per_page, $per_page);
+
+  $visible_ids = array();
+  foreach ($page_roots as $root_id) {
+    $visible_ids[] = $root_id;
+    foreach ($threads[$root_id] as $child_id) {
+      $visible_ids[] = $child_id;
+    }
+  }
 
   // Attached-field display needs the full entities for this page.
-  $reply_entities = $replies ? entity_load('entity_forum_reply', array_keys($replies)) : array();
+  $reply_entities = $visible_ids ? entity_load('entity_forum_reply', $visible_ids) : array();
   $reply_fields = _entity_forum_render_fields('entity_forum_reply', $reply_entities);
 
   $items = '';
-  foreach ($replies as $reply_id => $reply) {
-    $prefix = '';
-    if ($reply->reply_to_id) {
-      $prefix = '<div class="entity-forum-reply-context">' . l(t('In reply to #@id', array('@id' => $reply->reply_to_id)), current_path(), array('fragment' => 'reply-' . $reply->reply_to_id)) . '</div>';
+  foreach ($page_roots as $root_id) {
+    foreach (array_merge(array($root_id), $threads[$root_id]) as $reply_id) {
+      if (!isset($reply_entities[$reply_id])) {
+        continue;
+      }
+      $reply = $reply_entities[$reply_id];
+      $is_child = $reply_id != $root_id;
+      // "In reply to" context only when the parent is not the thread
+      // root the reply is already displayed under.
+      $prefix = '';
+      if ($is_child && $reply->reply_to_id && $reply->reply_to_id != $root_id) {
+        $prefix = '<div class="entity-forum-reply-context">' . l(t('In reply to #@id', array('@id' => $reply->reply_to_id)), current_path(), array('fragment' => 'reply-' . $reply->reply_to_id)) . '</div>';
+      }
+      $post = _entity_forum_render_post(
+        $reply->content,
+        $reply->format,
+        $reply->author_uid,
+        $reply->created,
+        'reply-' . $reply_id,
+        _entity_forum_post_links('reply', $reply, $topic),
+        $prefix,
+        entity_forum_post_attachments('entity_forum_reply', $reply_id),
+        $reply->author_name,
+        isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : ''
+      );
+      $items .= $is_child ? '<div class="entity-forum-reply-child">' . $post . '</div>' : $post;
     }
-    $items .= _entity_forum_render_post(
-      $reply->content,
-      $reply->format,
-      $reply->author_uid,
-      $reply->created,
-      'reply-' . $reply->reply_id,
-      _entity_forum_post_links('reply', $reply),
-      $prefix,
-      entity_forum_post_attachments('entity_forum_reply', $reply->reply_id),
-      $reply->author_name,
-      isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : ''
-    );
   }
   $build['replies'] = array('#markup' => $items);
   $build['pager'] = array('#theme' => 'pager');
 
-  // Reply form.
+  // Reply call to action. The inline bottom form is gone: each post has
+  // a "Reply" link (modal via htmx, standalone page without JS), and
+  // this closing link replies to the topic itself.
   if ($topic->closed) {
     $build['closed'] = array(
       '#markup' => '<div class="entity-forum-closed">' . t('This topic is closed to new replies.') . '</div>',
     );
   }
-  elseif (user_access('create entity forum reply')) {
-    $build['reply_form'] = backdrop_get_form('entity_forum_reply_frontend_form', $topic);
+  elseif (entity_forum_reply_create_access($topic)) {
+    $reply_path = 'topic/' . $topic->id() . '/reply';
+    $build['reply_cta'] = array(
+      '#markup' => '<div class="entity-forum-actions">' . l(t('Reply to this topic'), $reply_path, array(
+        'attributes' => _entity_forum_modal_link_attributes(url($reply_path)) + array('class' => array('entity-forum-reply-link', 'button')),
+      )) . '</div>',
+    );
   }
   elseif (user_is_anonymous()) {
     $build['login'] = array(
@@ -296,9 +339,70 @@ function entity_forum_topic_page($topic) {
     );
   }
 
+  // Modal plumbing: htmx + the dialog the Reply links target. Only
+  // loaded when the viewer can actually reply.
+  if (entity_forum_reply_create_access($topic)) {
+    $module_path = backdrop_get_path('module', 'entity_forum');
+    backdrop_add_js($module_path . '/js/htmx.min.js');
+    backdrop_add_js($module_path . '/js/entity_forum.js');
+    $build['dialog'] = array(
+      '#markup' => '<dialog id="entity-forum-dialog" class="entity-forum-dialog"><button type="button" class="entity-forum-dialog-close" aria-label="' . t('Close') . '">&times;</button><div id="entity-forum-dialog-content"></div></dialog>',
+      '#weight' => 100,
+    );
+  }
+
   // Let other modules alter the topic page (posts, reply form and all).
   backdrop_alter('entity_forum_topic_page', $build, $topic);
   return $build;
+}
+
+/**
+ * Resolves the thread root a reply belongs to.
+ *
+ * Walks reply_to_id links up until a reply with no (published) parent is
+ * reached — that reply is the thread root the whole chain displays
+ * under. A visited guard tolerates corrupt cycles; a dangling or
+ * unpublished parent makes the reply a root itself.
+ *
+ * @param int $reply_id
+ *   The reply to resolve.
+ * @param array $map
+ *   All published replies of the topic keyed by reply_id, each row with
+ *   a reply_to_id property.
+ *
+ * @return int
+ *   The thread root reply_id ($reply_id itself when it is a root).
+ */
+function _entity_forum_reply_thread_root($reply_id, array $map) {
+  $current = (int) $reply_id;
+  $seen = array();
+  while (!empty($map[$current]->reply_to_id)
+    && isset($map[(int) $map[$current]->reply_to_id])
+    && empty($seen[$current])) {
+    $seen[$current] = TRUE;
+    $current = (int) $map[$current]->reply_to_id;
+  }
+  return $current;
+}
+
+/**
+ * Page callback: the standalone reply form (topic/N/reply).
+ *
+ * The no-JS fallback for the per-post "Reply" links and the source the
+ * htmx modal fetches (entity_forum_htmx_deliver() strips the page chrome
+ * for HX-Request fetches). Threading works as before via ?reply_to=N.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic being replied to.
+ *
+ * @return array
+ *   Render array with the reply form.
+ */
+function entity_forum_reply_page($topic) {
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_set_breadcrumb((int) $topic->forum_id);
+  backdrop_set_title(t('Reply to: @title', array('@title' => $topic->title)));
+  return backdrop_get_form('entity_forum_reply_frontend_form', $topic);
 }
 
 /**
@@ -449,20 +553,40 @@ function entity_forum_post_attachments($entity_type, $entity_id) {
 }
 
 /**
- * Builds edit/delete links for a post, if the current user has access.
+ * Builds reply/edit/delete links for a post, if the current user has access.
+ *
+ * The "Reply" link targets the standalone reply form page; its htmx
+ * attributes open it in the modal instead when JS is available. Replying
+ * to the opening post starts a new thread (no reply_to); replying to a
+ * reply threads under it.
  *
  * @param string $type
  *   'topic' or 'reply'.
  * @param object $entity_or_row
  *   The entity (or a DB row with matching properties).
+ * @param EntityForumTopic|null $topic
+ *   The topic the post belongs to; enables the "Reply" link.
  *
  * @return string
  *   Rendered links, or an empty string.
  */
-function _entity_forum_post_links($type, $entity_or_row) {
+function _entity_forum_post_links($type, $entity_or_row, $topic = NULL) {
   $access_callback = "entity_forum_{$type}_access";
   $id = $type === 'topic' ? $entity_or_row->topic_id : $entity_or_row->reply_id;
   $links = array();
+  if ($topic && entity_forum_reply_create_access($topic)) {
+    $reply_path = 'topic/' . $topic->topic_id . '/reply';
+    $options = array();
+    if ($type === 'reply') {
+      $options['query'] = array('reply_to' => $id);
+    }
+    $links['reply'] = array(
+      'title' => t('Reply'),
+      'href' => $reply_path,
+      'query' => isset($options['query']) ? $options['query'] : array(),
+      'attributes' => _entity_forum_modal_link_attributes(url($reply_path, $options)),
+    );
+  }
   if ($access_callback('update', $entity_or_row)) {
     $links['edit'] = array('title' => t('Edit'), 'href' => "admin/content/entity-forum/$type/$id/edit");
   }
@@ -543,16 +667,24 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
 }
 
 /**
- * Form builder: post a reply from the topic page.
+ * Form builder: post a reply (standalone page or htmx modal).
  *
  * Supports threading via a ?reply_to=N query parameter pointing at the
- * reply being answered.
+ * reply being answered. Served two ways from topic/N/reply:
+ * - Full page (no JS): everything, including attached-field widgets.
+ * - htmx modal (HX-Request): a quick reply — body only, because file
+ *   widgets (managed_file) depend on core ajax.js which is not wired up
+ *   inside swapped fragments; a link to the full form covers the rest.
+ *   The form posts through htmx back into the dialog, so validation
+ *   errors re-render in place; success redirects the whole browser via
+ *   the HX-Redirect header.
  *
  * @param EntityForumTopic $topic
  *   The topic being replied to.
  */
 function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
   $form_state['topic'] = $topic;
+  $is_htmx = _entity_forum_is_htmx_request();
 
   $reply_to = 0;
   if (isset($_GET['reply_to']) && ctype_digit((string) $_GET['reply_to'])) {
@@ -579,16 +711,33 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
     '#required' => TRUE,
   );
 
-  // Widgets for any fields a site has attached to replies.
   if (!isset($form_state['reply'])) {
     $form_state['reply'] = entity_create('entity_forum_reply', array(
       'topic_id' => (int) $topic->id(),
       'forum_id' => (int) $topic->forum_id,
     ));
   }
-  field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
 
-  $form['actions'] = array('#type' => 'actions');
+  if ($is_htmx) {
+    // Quick reply: post back into the dialog via htmx (form token and
+    // build id travel in the fragment, so FAPI security is untouched).
+    $query = backdrop_get_query_parameters();
+    $form['#attributes']['hx-post'] = url(current_path(), $query ? array('query' => $query) : array());
+    $form['#attributes']['hx-target'] = '#entity-forum-dialog-content';
+    $form['#attributes']['hx-swap'] = 'innerHTML';
+    if (field_info_instances('entity_forum_reply', 'entity_forum_reply')) {
+      $form['full_form_link'] = array(
+        '#markup' => '<div class="entity-forum-full-form-link">' . l(t('Need to attach files? Use the full reply form.'), 'topic/' . $topic->id() . '/reply', $reply_to ? array('query' => array('reply_to' => $reply_to)) : array()) . '</div>',
+        '#weight' => 5,
+      );
+    }
+  }
+  else {
+    // Widgets for any fields a site has attached to replies.
+    field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
+  }
+
+  $form['actions'] = array('#type' => 'actions', '#weight' => 10);
   $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Post reply'),
@@ -598,13 +747,24 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
 
 /**
  * Validation for entity_forum_reply_frontend_form(): attached fields.
+ *
+ * Field widgets are only present on the full (non-htmx) form; the htmx
+ * quick reply posts back with the HX-Request header, so both build and
+ * validate see the same structure.
  */
 function entity_forum_reply_frontend_form_validate($form, &$form_state) {
-  field_attach_form_validate('entity_forum_reply', $form_state['reply'], $form, $form_state);
+  if (!_entity_forum_is_htmx_request()) {
+    field_attach_form_validate('entity_forum_reply', $form_state['reply'], $form, $form_state);
+  }
 }
 
 /**
  * Submit handler for entity_forum_reply_frontend_form().
+ *
+ * htmx submissions end with an HX-Redirect header instead of a normal
+ * 302: the XHR would transparently follow a Location redirect and dump
+ * the whole topic page inside the dialog, whereas HX-Redirect makes
+ * htmx navigate the browser itself.
  */
 function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $topic = $form_state['topic'];
@@ -614,10 +774,20 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $reply->content = $values['content']['value'];
   $reply->format = $values['content']['format'];
   $reply->reply_to_id = (int) $values['reply_to_id'];
-  field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
+  if (!_entity_forum_is_htmx_request()) {
+    field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
+  }
   $reply->save();
 
   backdrop_set_message(t('Your reply has been posted.'));
+
+  if (_entity_forum_is_htmx_request()) {
+    // Direct header(): backdrop_add_http_header() queues headers for
+    // page delivery, which this early exit bypasses.
+    header('HX-Redirect: ' . url('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id())));
+    backdrop_exit();
+  }
+
   $form_state['redirect'] = array('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id()));
 }
 

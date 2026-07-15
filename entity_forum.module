@@ -336,6 +336,18 @@ function entity_forum_menu() {
     'access arguments' => array(1),
     'file' => 'entity_forum.pages.inc',
   );
+  // The reply form as its own page: the no-JS fallback for the per-post
+  // "Reply" links, and the htmx source for the modal (the delivery
+  // callback strips the page chrome for HX-Request fetches).
+  $items['topic/%entity_forum_topic/reply'] = array(
+    'title' => 'Reply',
+    'page callback' => 'entity_forum_reply_page',
+    'page arguments' => array(1),
+    'access callback' => 'entity_forum_reply_create_access',
+    'access arguments' => array(1),
+    'delivery callback' => 'entity_forum_htmx_deliver',
+    'file' => 'entity_forum.pages.inc',
+  );
 
   // Account page: the member's forum tab (posting name + their posts).
   $items['user/%user/forum-posts'] = array(
@@ -868,6 +880,86 @@ function entity_forum_topic_create_access($forum) {
   return $forum->status
     && entity_forum_forum_access('view', $forum)
     && user_access('create entity forum topic');
+}
+
+/**
+ * Menu access callback: can the user post a reply in this topic?
+ *
+ * Requires view access to the topic (forum visibility and admin_only
+ * listing included), the reply-creation permission, an open topic, and —
+ * for unpublished topics — moderator rights.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic being replied to.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_reply_create_access($topic) {
+  if (!$topic->status && !user_access('administer entity forum topic')) {
+    return FALSE;
+  }
+  return !$topic->closed
+    && entity_forum_topic_view_access($topic)
+    && user_access('create entity forum reply');
+}
+
+/**
+ * Whether the current request was made by htmx.
+ *
+ * htmx sends an HX-Request header with every request it issues; plain
+ * browser navigation (the no-JS fallback) does not.
+ *
+ * @return bool
+ *   TRUE for htmx (modal) requests.
+ */
+function _entity_forum_is_htmx_request() {
+  return !empty($_SERVER['HTTP_HX_REQUEST']);
+}
+
+/**
+ * Delivery callback: page for browsers, bare fragment for htmx.
+ *
+ * Normal requests get the full themed page (backdrop_deliver_html_page).
+ * htmx requests get just the status messages and rendered content, ready
+ * to swap into the modal dialog — no page chrome. Error codes (403/404)
+ * fall through to the normal delivery either way; htmx ignores non-2xx
+ * responses by default.
+ *
+ * @param mixed $page_callback_result
+ *   The page callback's render array, string, or menu status code.
+ */
+function entity_forum_htmx_deliver($page_callback_result) {
+  if (!_entity_forum_is_htmx_request() || is_int($page_callback_result) || !isset($page_callback_result)) {
+    backdrop_deliver_html_page($page_callback_result);
+    return;
+  }
+  print theme('status_messages');
+  print is_string($page_callback_result) ? $page_callback_result : backdrop_render($page_callback_result);
+  backdrop_page_footer();
+}
+
+/**
+ * Returns the htmx attributes that open a URL in the forum modal.
+ *
+ * Attached to "Reply" (and later "Report") links: htmx fetches the URL
+ * (the HX-Request header makes the server return a bare fragment) and
+ * swaps it into the dialog, which the module's JS then opens. Without
+ * htmx/JS the attributes are inert and the link's href navigates
+ * normally to the standalone form page.
+ *
+ * @param string $url
+ *   The URL to load into the modal.
+ *
+ * @return array
+ *   Attributes array for l().
+ */
+function _entity_forum_modal_link_attributes($url) {
+  return array(
+    'hx-get' => $url,
+    'hx-target' => '#entity-forum-dialog-content',
+    'hx-swap' => 'innerHTML',
+  );
 }
 
 /**

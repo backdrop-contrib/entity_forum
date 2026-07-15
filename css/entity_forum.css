@@ -122,3 +122,50 @@ h2.entity-forum-topic-title {
 p.entity-forum-attachment-filename {
     margin: unset;
 }
+
+
+/*-----Threaded replies -----------------------------*/
+
+/* One visual level: every reply in a chain indents under its thread
+   root. */
+.entity-forum-reply-child {
+    margin-left: 48px;
+}
+.entity-forum-reply-context {
+    font-size: 0.85em;
+    color: #666;
+    padding: 3px 0 0 5px;
+}
+
+
+/*-----Reply modal (htmx + native <dialog>) ---------*/
+
+.entity-forum-dialog {
+    border: 1px solid #999;
+    border-radius: 6px;
+    padding: 1.5em;
+    max-width: 640px;
+    width: 90%;
+    box-shadow: 3px 3px 8px rgba(0, 0, 0, 0.4);
+}
+.entity-forum-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+.entity-forum-dialog-close {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    border: none;
+    background: none;
+    font-size: 1.4em;
+    line-height: 1;
+    cursor: pointer;
+    color: #666;
+}
+.entity-forum-dialog-close:hover {
+    color: #000;
+}
+.entity-forum-full-form-link {
+    font-size: 0.9em;
+    margin: 0.5em 0;
+}
