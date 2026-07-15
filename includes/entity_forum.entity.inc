@@ -226,6 +226,12 @@ class EntityForumTopic extends Entity {
   public $pending = 0;
 
   /**
+   * Why the post was held for review (empty when not held).
+   * @var string
+   */
+  public $pending_reason = '';
+
+  /**
    * Denormalized count of published replies (maintained automatically).
    * @var int
    */
@@ -374,6 +380,12 @@ class EntityForumReply extends Entity {
    * @var int
    */
   public $pending = 0;
+
+  /**
+   * Why the post was held for review (empty when not held).
+   * @var string
+   */
+  public $pending_reason = '';
 
   /**
    * Constructs a reply, filling runtime defaults for new entities.

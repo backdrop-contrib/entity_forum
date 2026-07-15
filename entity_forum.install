@@ -296,6 +296,13 @@ function entity_forum_schema() {
         'default' => 0,
         'description' => 'Awaiting moderator review (1 = in the moderation queue). Pending topics are held with listing = admin_only.',
       ),
+      'pending_reason' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Why the post was held for review (e.g. posting_status, or a reason set by a third-party moderation module).',
+      ),
       'reply_count' => array(
         'type' => 'int',
         'not null' => TRUE,
@@ -421,6 +428,13 @@ function entity_forum_schema() {
         'default' => 0,
         'description' => 'Awaiting moderator review (1 = in the moderation queue). Pending replies are held with status = 0.',
       ),
+      'pending_reason' => array(
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Why the post was held for review (e.g. posting_status, or a reason set by a third-party moderation module).',
+      ),
     ),
     'primary key' => array('reply_id'),
     'indexes' => array(
@@ -431,6 +445,80 @@ function entity_forum_schema() {
       'reply_to_id' => array('reply_to_id'),
       'topic_listing' => array('topic_id', 'status', 'created'),
       'pending' => array('pending'),
+    ),
+  );
+
+  $schema['entity_forum_report'] = array(
+    'description' => 'Member reports of forum content for moderator attention. A plain table, not an entity: reports never appear in lists or counts, so they cannot pollute the denormalized topic statistics.',
+    'fields' => array(
+      'report_id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'Primary Key: Unique report ID.',
+      ),
+      'entity_type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'The reported entity type: entity_forum_topic or entity_forum_reply.',
+      ),
+      'entity_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The reported entity ID.',
+      ),
+      'reporter_uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid of the reporter. Flipped to negative ("last uid") when the account is deleted.',
+      ),
+      'reporter_name' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Snapshot of the reporter display name at report time.',
+      ),
+      'reason' => array(
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+        'description' => 'Why the content was reported, in the reporter\'s words.',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the report was made.',
+      ),
+      'resolved' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Whether a moderator has resolved the report (1 = resolved).',
+      ),
+      'resolved_uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid of the moderator who resolved the report.',
+      ),
+      'resolved_time' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the report was resolved.',
+      ),
+    ),
+    'primary key' => array('report_id'),
+    'indexes' => array(
+      'resolved' => array('resolved'),
+      'target' => array('entity_type', 'entity_id'),
+      'reporter_uid' => array('reporter_uid'),
     ),
   );
 
@@ -627,5 +715,35 @@ function entity_forum_update_1004() {
   }
   // Rebuild the schema cache so entity saves see the new columns at once
   // (backdrop_write_record silently drops fields missing from the cache).
+  backdrop_get_complete_schema(TRUE);
+}
+
+/**
+ * Adds the {entity_forum_report} table and the pending_reason columns.
+ *
+ * Reports let members flag content for moderator attention (a plain
+ * table, deliberately not an entity so reports can never leak into
+ * lists or statistics). pending_reason records WHY a post was held for
+ * review — the member's posting status, or a reason set by a
+ * third-party moderation module via hook_entity_forum_post_hold_alter().
+ */
+function entity_forum_update_1005() {
+  if (!db_table_exists('entity_forum_report')) {
+    $schema = entity_forum_schema();
+    db_create_table('entity_forum_report', $schema['entity_forum_report']);
+  }
+  $spec = array(
+    'type' => 'varchar',
+    'length' => 64,
+    'not null' => TRUE,
+    'default' => '',
+    'description' => 'Why the post was held for review (e.g. posting_status, or a reason set by a third-party moderation module).',
+  );
+  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
+    if (!db_field_exists($table, 'pending_reason')) {
+      db_add_field($table, 'pending_reason', $spec);
+    }
+  }
+  // Rebuild the schema cache so entity saves see the new columns at once.
   backdrop_get_complete_schema(TRUE);
 }

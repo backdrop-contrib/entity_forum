@@ -362,16 +362,18 @@ function entity_forum_topic_page($topic) {
     );
   }
 
-  // Modal plumbing: htmx + the dialog the Reply links target. Only
-  // loaded when the viewer can actually reply.
-  if (entity_forum_reply_create_access($topic)) {
+  // Modal plumbing: htmx + the dialog the Reply and Report links target.
+  // Loaded when the viewer can reply, or is logged in (Report links).
+  if (entity_forum_reply_create_access($topic) || user_is_logged_in()) {
     entity_forum_add_htmx();
     backdrop_add_js(backdrop_get_path('module', 'entity_forum') . '/js/entity_forum.js');
     $build['dialog'] = array(
       '#markup' => '<dialog id="entity-forum-dialog" class="entity-forum-dialog"><button type="button" class="entity-forum-dialog-close" aria-label="' . t('Close') . '">&times;</button><div id="entity-forum-dialog-content"></div></dialog>',
       '#weight' => 100,
     );
+  }
 
+  if (entity_forum_reply_create_access($topic)) {
     // Register the reply form's assets on THIS page without printing
     // the form: building + rendering pulls in the text-format editor
     // libraries and their Backdrop.settings (keyed by format, not by
@@ -379,6 +381,7 @@ function entity_forum_topic_page($topic) {
     // Backdrop.attachBehaviors() finds everything already loaded and
     // the WYSIWYG editor initializes. The rendered markup is discarded
     // deliberately — printing it would duplicate the fragment's IDs.
+    // (The report form is a plain textarea — no assets to preload.)
     $assets_form = backdrop_get_form('entity_forum_reply_frontend_form', $topic);
     backdrop_render($assets_form);
   }
@@ -438,6 +441,106 @@ function entity_forum_reply_page($topic) {
 }
 
 /**
+ * Page callback: the report form (forum-report/{topic|reply}/{id}).
+ *
+ * The no-JS fallback page for the per-post "Report" links and the htmx
+ * modal source, exactly like the reply form route. Access (logged in,
+ * target exists and is visible to the reporter) is checked by
+ * entity_forum_report_access().
+ *
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param int $id
+ *   The reported entity ID.
+ *
+ * @return array
+ *   Render array with the report form.
+ */
+function entity_forum_report_page($type, $id) {
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  $entity = entity_load("entity_forum_$type", $id);
+  $topic = $type === 'topic' ? $entity : entity_load('entity_forum_topic', $entity->topic_id);
+  _entity_forum_set_breadcrumb((int) $topic->forum_id);
+  backdrop_set_title(t('Report content in: @title', array('@title' => $topic->title)));
+  return backdrop_get_form('entity_forum_report_form', $type, $entity, $topic);
+}
+
+/**
+ * Form builder: report a post to the moderators.
+ *
+ * Shows what is being reported (author + excerpt) above a reason
+ * textarea. In the htmx modal the form posts back into the dialog, like
+ * the quick reply.
+ *
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param object $entity
+ *   The reported topic or reply entity.
+ * @param EntityForumTopic $topic
+ *   The topic the post belongs to (the entity itself for topics).
+ */
+function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
+  $form_state['report_type'] = $type;
+  $form_state['report_entity'] = $entity;
+  $form_state['report_topic'] = $topic;
+
+  $excerpt = truncate_utf8(strip_tags((string) $entity->content), 160, TRUE, TRUE);
+  $author = entity_forum_format_author($entity->author_uid, $entity->author_name);
+  $form['heading'] = array(
+    '#markup' => '<h3>' . t('Report to the moderators') . '</h3>',
+  );
+  $form['target'] = array(
+    '#markup' => '<div class="entity-forum-report-target"><em>' . t('Reporting !author:', array('!author' => $author)) . '</em> ' . check_plain($excerpt) . '</div>',
+  );
+  $form['reason'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Why are you reporting this?'),
+    '#rows' => 4,
+    '#required' => TRUE,
+    '#description' => t('Only the moderators see your report.'),
+  );
+
+  if (_entity_forum_is_htmx_request()) {
+    $form['#attributes']['hx-post'] = url(current_path());
+    $form['#attributes']['hx-target'] = '#entity-forum-dialog-content';
+    $form['#attributes']['hx-swap'] = 'innerHTML';
+  }
+
+  $form['actions'] = array('#type' => 'actions', '#weight' => 10);
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Send report'),
+  );
+  return $form;
+}
+
+/**
+ * Submit handler for entity_forum_report_form().
+ *
+ * Files the report (one open report per member per post — a duplicate
+ * just re-confirms) and returns the member to the topic page; the htmx
+ * path uses the same X-EntityForum-Redirect mechanism as the reply
+ * modal, so the dialog closes and the confirmation message shows after
+ * the reload.
+ */
+function entity_forum_report_form_submit($form, &$form_state) {
+  $type = $form_state['report_type'];
+  $entity = $form_state['report_entity'];
+  $topic = $form_state['report_topic'];
+
+  $report_id = entity_forum_report_create("entity_forum_$type", (int) $entity->id(), $form_state['values']['reason']);
+  backdrop_set_message($report_id
+    ? t('Thank you — your report has been sent to the moderators.')
+    : t('You have already reported this post; the moderators will review it.'));
+
+  if (_entity_forum_is_htmx_request()) {
+    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id()));
+    backdrop_exit();
+  }
+  $form_state['redirect'] = 'topic/' . $topic->id();
+}
+
+/**
  * Builds the moderation panel shown above forum lists to moderators.
  *
  * A compact table styled like the subforum rows, with one row per
@@ -465,6 +568,12 @@ function _entity_forum_moderation_panel() {
     $rows[] = array(
       '<div class="entity-forum-title">' . l(t('Replies awaiting review'), 'forums/moderation') . '</div>',
       $counts['replies'],
+    );
+  }
+  if ($counts['reports']) {
+    $rows[] = array(
+      '<div class="entity-forum-title">' . l(t('Reported content'), 'forums/moderation') . '</div>',
+      $counts['reports'],
     );
   }
   if (!$rows) {
@@ -499,7 +608,7 @@ function entity_forum_moderation_page() {
   $forum_titles = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
 
   // Topics awaiting review.
-  $topics = db_query('SELECT topic_id, title, forum_id, author_uid, author_name, created FROM {entity_forum_topic} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
+  $topics = db_query('SELECT topic_id, title, forum_id, author_uid, author_name, created, pending_reason FROM {entity_forum_topic} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
   $topic_rows = array();
   foreach ($topics as $topic) {
     $topic_rows[] = array(
@@ -507,19 +616,20 @@ function entity_forum_moderation_page() {
       isset($forum_titles[$topic->forum_id]) ? check_plain($forum_titles[$topic->forum_id]) : t('N/A'),
       entity_forum_format_author($topic->author_uid, $topic->author_name),
       format_date($topic->created, 'short'),
+      entity_forum_pending_reason_label($topic->pending_reason),
       _entity_forum_moderation_actions('topic', $topic->topic_id),
     );
   }
   $build['topics_title'] = array('#markup' => '<h3>' . t('Topics awaiting review') . '</h3>');
   $build['topics'] = array(
     '#theme' => 'table',
-    '#header' => array(t('Topic'), t('Forum'), t('Author'), t('Posted'), t('Actions')),
+    '#header' => array(t('Topic'), t('Forum'), t('Author'), t('Posted'), t('Held by'), t('Actions')),
     '#rows' => $topic_rows,
     '#empty' => t('No topics are waiting for review.'),
   );
 
   // Replies awaiting review, with their content rendered for reading.
-  $replies = db_query('SELECT reply_id, content, format, topic_id, author_uid, author_name, created FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
+  $replies = db_query('SELECT reply_id, content, format, topic_id, author_uid, author_name, created, pending_reason FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
   $reply_rows = array();
   foreach ($replies as $reply) {
     $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
@@ -528,18 +638,93 @@ function entity_forum_moderation_page() {
       $topic_title !== FALSE ? l($topic_title, 'topic/' . $reply->topic_id) : t('N/A'),
       entity_forum_format_author($reply->author_uid, $reply->author_name),
       format_date($reply->created, 'short'),
+      entity_forum_pending_reason_label($reply->pending_reason),
       _entity_forum_moderation_actions('reply', $reply->reply_id),
     );
   }
   $build['replies_title'] = array('#markup' => '<h3>' . t('Replies awaiting review') . '</h3>');
   $build['replies'] = array(
     '#theme' => 'table',
-    '#header' => array(t('Reply'), t('Topic'), t('Author'), t('Posted'), t('Actions')),
+    '#header' => array(t('Reply'), t('Topic'), t('Author'), t('Posted'), t('Held by'), t('Actions')),
     '#rows' => $reply_rows,
     '#empty' => t('No replies are waiting for review.'),
   );
 
+  // Unresolved content reports. The reported post renders as an excerpt
+  // linking to it in place; the reporter's reason shows in full.
+  $reports = db_query('SELECT report_id, entity_type, entity_id, reporter_uid, reporter_name, reason, created FROM {entity_forum_report} WHERE resolved = 0 ORDER BY created ASC')->fetchAll();
+  $report_rows = array();
+  foreach ($reports as $report) {
+    $is_topic = $report->entity_type === 'entity_forum_topic';
+    $target = entity_load($report->entity_type, $report->entity_id);
+    if ($target) {
+      $excerpt = truncate_utf8(strip_tags((string) $target->content), 120, TRUE, TRUE);
+      $target_cell = $is_topic
+        ? l($target->title, 'topic/' . $target->id())
+        : l($excerpt !== '' ? $excerpt : t('Reply #@id', array('@id' => $target->id())), 'topic/' . $target->topic_id, array('fragment' => 'reply-' . $target->id()));
+      $author_cell = entity_forum_format_author($target->author_uid, $target->author_name);
+    }
+    else {
+      // Cascades remove reports with their target; a miss here is a
+      // transient race at worst.
+      $target_cell = t('N/A (deleted)');
+      $author_cell = '';
+    }
+    $report_rows[] = array(
+      $target_cell,
+      $author_cell,
+      '<div class="entity-forum-moderation-content">' . check_plain((string) $report->reason) . '</div>',
+      entity_forum_format_author($report->reporter_uid, $report->reporter_name),
+      format_date($report->created, 'short'),
+      _entity_forum_report_actions($report),
+    );
+  }
+  $build['reports_title'] = array('#markup' => '<h3>' . t('Reported content') . '</h3>');
+  $build['reports'] = array(
+    '#theme' => 'table',
+    '#header' => array(t('Reported post'), t('Post author'), t('Reason'), t('Reported by'), t('Reported'), t('Actions')),
+    '#rows' => $report_rows,
+    '#empty' => t('No unresolved reports.'),
+  );
+
   return $build;
+}
+
+/**
+ * Builds the action links for one report row in the moderation queue.
+ *
+ * Resolve is a token-protected callback link; Edit and Delete act on
+ * the REPORTED POST (not the report) and appear when the viewer's
+ * entity access allows — deleting the post removes its reports too.
+ *
+ * @param object $report
+ *   A row from {entity_forum_report}.
+ *
+ * @return string
+ *   Rendered links.
+ */
+function _entity_forum_report_actions($report) {
+  $id = (int) $report->report_id;
+  $links = array(
+    'resolve' => array(
+      'title' => t('Resolve'),
+      'href' => "forums/moderation/resolve/report/$id",
+      'query' => array('token' => backdrop_get_token("entity_forum_moderation:resolve:report:$id")),
+    ),
+  );
+  $type = $report->entity_type === 'entity_forum_topic' ? 'topic' : 'reply';
+  $access_callback = "entity_forum_{$type}_access";
+  $target = entity_load($report->entity_type, $report->entity_id);
+  if ($target && $access_callback('update', $target)) {
+    $links['edit'] = array('title' => t('Edit post'), 'href' => "admin/content/entity-forum/$type/{$report->entity_id}/edit", 'query' => backdrop_get_destination());
+  }
+  if ($target && $access_callback('delete', $target)) {
+    $links['delete'] = array('title' => t('Delete post'), 'href' => "admin/content/entity-forum/$type/{$report->entity_id}/delete", 'query' => backdrop_get_destination());
+  }
+  return theme('links', array(
+    'links' => $links,
+    'attributes' => array('class' => array('links', 'inline')),
+  ));
 }
 
 /**
@@ -594,23 +779,49 @@ function _entity_forum_moderation_actions($type, $id) {
  * it remains reachable through the admin overviews. Links carry a CSRF
  * token seeded per action, checked here on top of the menu access check.
  *
+ * Resolving a report ('resolve' + type 'report') marks the report row
+ * resolved with the acting moderator and time; the reported post itself
+ * is untouched — act on it via the Edit/Delete links if needed.
+ *
  * @param string $action
- *   'approve' or 'hide'.
+ *   'approve', 'hide' or 'resolve'.
  * @param string $type
- *   'topic' or 'reply'.
+ *   'topic', 'reply' or 'report'.
  * @param int $id
- *   The entity ID.
+ *   The entity or report ID.
  *
  * @return int|void
  *   A menu status code on failure; otherwise redirects to the queue.
  */
 function entity_forum_moderation_action($action, $type, $id) {
-  if (!in_array($type, array('topic', 'reply'), TRUE) || !in_array($action, array('approve', 'hide'), TRUE)) {
+  $valid = ($action === 'resolve' && $type === 'report')
+    || (in_array($action, array('approve', 'hide'), TRUE) && in_array($type, array('topic', 'reply'), TRUE));
+  if (!$valid) {
     return MENU_NOT_FOUND;
   }
   if (!isset($_GET['token']) || !backdrop_valid_token($_GET['token'], "entity_forum_moderation:$action:$type:$id")) {
     return MENU_ACCESS_DENIED;
   }
+
+  if ($action === 'resolve') {
+    $updated = db_update('entity_forum_report')
+      ->fields(array(
+        'resolved' => 1,
+        'resolved_uid' => (int) $GLOBALS['user']->uid,
+        'resolved_time' => REQUEST_TIME,
+      ))
+      ->condition('report_id', $id)
+      ->condition('resolved', 0)
+      ->execute();
+    if (!$updated) {
+      return MENU_NOT_FOUND;
+    }
+    backdrop_set_message(t('The report has been resolved.'));
+    watchdog('entity_forum', 'Moderation: resolved report @id.', array('@id' => $id), WATCHDOG_NOTICE);
+    backdrop_goto('forums/moderation');
+    return;
+  }
+
   $entity = entity_load("entity_forum_$type", $id);
   if (!$entity) {
     return MENU_NOT_FOUND;
@@ -824,6 +1035,16 @@ function _entity_forum_post_links($type, $entity_or_row, $topic = NULL) {
       'attributes' => _entity_forum_modal_link_attributes(url($reply_path, $options)),
     );
   }
+  // Report: logged-in members flag someone else's post for moderator
+  // attention — modal via htmx, standalone page without JS.
+  if (user_is_logged_in() && $entity_or_row->author_uid != $GLOBALS['user']->uid) {
+    $report_path = "forum-report/$type/$id";
+    $links['report'] = array(
+      'title' => t('Report'),
+      'href' => $report_path,
+      'attributes' => _entity_forum_modal_link_attributes(url($report_path)),
+    );
+  }
   if ($access_callback('update', $entity_or_row)) {
     $links['edit'] = array('title' => t('Edit'), 'href' => "admin/content/entity-forum/$type/$id/edit");
   }
@@ -890,10 +1111,12 @@ function entity_forum_topic_frontend_form_validate($form, &$form_state) {
 /**
  * Submit handler for entity_forum_topic_frontend_form().
  *
- * Topics by members with the 'review' posting status are held for
- * moderation: pending + admin_only listing, so the existing visibility
- * machinery hides them until a moderator approves. Held authors are sent
- * back to the forum page — their own topic page would deny them access.
+ * Topics can be held for moderation — by the member's 'review' posting
+ * status or by another module via hook_entity_forum_post_hold_alter()
+ * (see entity_forum_post_hold()): pending + admin_only listing, so the
+ * existing visibility machinery hides them until a moderator approves.
+ * Held authors are sent back to the forum page — their own topic page
+ * would deny them access.
  */
 function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $values = $form_state['values'];
@@ -901,10 +1124,12 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $topic->title = $values['title'];
   $topic->content = $values['content']['value'];
   $topic->format = $values['content']['format'];
-  $held = entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_REVIEW;
+  $hold = entity_forum_post_hold($topic, 'entity_forum_topic');
+  $held = !empty($hold['hold']);
   if ($held) {
     $topic->listing = ENTITY_FORUM_LISTING_ADMIN_ONLY;
     $topic->pending = 1;
+    $topic->pending_reason = substr((string) $hold['reason'], 0, 64);
   }
   field_attach_submit('entity_forum_topic', $topic, $form, $form_state);
   $topic->save();
@@ -1027,13 +1252,17 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $reply->content = $values['content']['value'];
   $reply->format = $values['content']['format'];
   $reply->reply_to_id = (int) $values['reply_to_id'];
-  // Replies by members with the 'review' posting status are held for
-  // moderation: pending + unpublished, invisible everywhere (topic page,
-  // stats, counts) until a moderator approves.
-  $held = entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_REVIEW;
+  // Replies can be held for moderation — by the member's 'review'
+  // posting status or by another module via
+  // hook_entity_forum_post_hold_alter(): pending + unpublished,
+  // invisible everywhere (topic page, stats, counts) until a moderator
+  // approves.
+  $hold = entity_forum_post_hold($reply, 'entity_forum_reply');
+  $held = !empty($hold['hold']);
   if ($held) {
     $reply->status = 0;
     $reply->pending = 1;
+    $reply->pending_reason = substr((string) $hold['reason'], 0, 64);
   }
   if (!_entity_forum_is_htmx_request()) {
     field_attach_submit('entity_forum_reply', $reply, $form, $form_state);

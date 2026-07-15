@@ -56,3 +56,41 @@ function hook_entity_forum_topic_page_alter(&$build, $topic) {
     $build['closed']['#markup'] .= '<p>' . t('Contact a moderator to reopen it.') . '</p>';
   }
 }
+
+/**
+ * Decide whether a new frontend post is held for moderator review.
+ *
+ * Fired by entity_forum_post_hold() when a member submits a topic or
+ * reply through the frontend forms, before the entity is saved. Set
+ * $hold['hold'] to TRUE to place the post in the moderation queue: the
+ * member sees a "will appear once a moderator has approved it" message,
+ * the post is hidden by the standard machinery (admin_only listing for
+ * topics, unpublished for replies) and carries $hold['reason'] in its
+ * pending_reason column, shown to moderators as the "Held by" value.
+ *
+ * Entity Forum's own rule (the member's 'review' posting status) runs
+ * first; this alter can add rules — an AI moderation verdict, a
+ * probation period for new members, per-forum rules — or override the
+ * built-in decision. Keep the check fast: it runs synchronously in the
+ * posting request. For slow analysis (e.g. a remote AI service), hold
+ * the post here and approve it later from your own code — publishing a
+ * held post through a normal entity save releases the hold
+ * automatically (the pending flag and reason are cleared in presave).
+ *
+ * @param array $hold
+ *   - hold: (bool) TRUE to hold the post for review.
+ *   - reason: (string) short machine reason, stored in pending_reason
+ *     (max 64 chars). Use a recognisable prefix, e.g. 'ai:spam 0.92'.
+ * @param array $context
+ *   - entity: the unsaved topic or reply, content already set.
+ *   - entity_type: 'entity_forum_topic' or 'entity_forum_reply'.
+ *   - account: the posting user account.
+ */
+function hook_entity_forum_post_hold_alter(&$hold, $context) {
+  // Example: hold everything a member posts in their first 14 days.
+  $account = $context['account'];
+  if (!$hold['hold'] && REQUEST_TIME - $account->created < 14 * 86400) {
+    $hold['hold'] = TRUE;
+    $hold['reason'] = 'probation';
+  }
+}

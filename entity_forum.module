@@ -124,6 +124,63 @@ function entity_forum_posting_status_save($account, $status) {
 }
 
 /**
+ * Decides whether a new frontend post must be held for moderator review.
+ *
+ * The built-in rule holds posts by members with the 'review' posting
+ * status. Other modules can add their own rules (AI moderation,
+ * probation periods, ...) via hook_entity_forum_post_hold_alter() —
+ * see entity_forum.api.php. Called by the frontend topic and reply form
+ * submits before the entity is saved; the hold itself uses the existing
+ * machinery (admin_only listing for topics, unpublished for replies)
+ * plus the pending flag, with the reason recorded in pending_reason.
+ *
+ * @param object $entity
+ *   The unsaved topic or reply, with content already set.
+ * @param string $entity_type
+ *   entity_forum_topic or entity_forum_reply.
+ * @param object|null $account
+ *   The posting account; defaults to the current user.
+ *
+ * @return array
+ *   Array with:
+ *   - hold: (bool) TRUE to hold the post for review.
+ *   - reason: (string) short machine reason shown to moderators in the
+ *     queue (max 64 chars stored), e.g. 'posting_status'.
+ */
+function entity_forum_post_hold($entity, $entity_type, $account = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  $hold = array(
+    'hold' => entity_forum_user_posting_status($account) === ENTITY_FORUM_POSTING_REVIEW,
+    'reason' => 'posting_status',
+  );
+  $context = array(
+    'entity' => $entity,
+    'entity_type' => $entity_type,
+    'account' => $account,
+  );
+  backdrop_alter('entity_forum_post_hold', $hold, $context);
+  return $hold;
+}
+
+/**
+ * Returns the human label for a pending_reason value in the queue.
+ *
+ * @param string $reason
+ *   The stored pending_reason.
+ *
+ * @return string
+ *   Sanitized label.
+ */
+function entity_forum_pending_reason_label($reason) {
+  if ($reason === 'posting_status') {
+    return t('Member posting status');
+  }
+  return $reason === '' ? '' : check_plain($reason);
+}
+
+/**
  * Whether an account is a forum moderator.
  *
  * Moderators see moderation panels and held (admin_only) topics, work the
@@ -456,6 +513,19 @@ function entity_forum_menu() {
     'file' => 'entity_forum.pages.inc',
   );
 
+  // Report form: the no-JS fallback page and the htmx modal source, like
+  // the reply form (the delivery callback strips the chrome for
+  // HX-Request fetches). URL parts: forum-report/{topic|reply}/{id}.
+  $items['forum-report/%/%'] = array(
+    'title' => 'Report content',
+    'page callback' => 'entity_forum_report_page',
+    'page arguments' => array(1, 2),
+    'access callback' => 'entity_forum_report_access',
+    'access arguments' => array(1, 2),
+    'delivery callback' => 'entity_forum_htmx_deliver',
+    'file' => 'entity_forum.pages.inc',
+  );
+
   // Moderation queue: posts held for review, with approve/keep-hidden
   // actions. A frontend page (not admin/*) so it can be linked from the
   // moderation panels shown above the forum lists.
@@ -475,6 +545,13 @@ function entity_forum_menu() {
   $items['forums/moderation/hide/%/%'] = array(
     'page callback' => 'entity_forum_moderation_action',
     'page arguments' => array('hide', 3, 4),
+    'access callback' => 'entity_forum_user_is_moderator',
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['forums/moderation/resolve/%/%'] = array(
+    'page callback' => 'entity_forum_moderation_action',
+    'page arguments' => array('resolve', 3, 4),
     'access callback' => 'entity_forum_user_is_moderator',
     'type' => MENU_CALLBACK,
     'file' => 'entity_forum.pages.inc',
@@ -1039,6 +1116,85 @@ function entity_forum_reply_create_access($topic) {
 }
 
 /**
+ * Menu access callback: may the current user report this post?
+ *
+ * Reporting is for logged-in members who can actually see the post:
+ * view access to the topic (forum visibility and admin_only listing
+ * included) is required, and the target must exist and be published.
+ *
+ * @param string $type
+ *   'topic' or 'reply' (the URL fragment, not the entity type).
+ * @param int $id
+ *   The entity ID.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_report_access($type, $id) {
+  if (!user_is_logged_in() || !in_array($type, array('topic', 'reply'), TRUE)) {
+    return FALSE;
+  }
+  $entity = entity_load("entity_forum_$type", $id);
+  if (!$entity || !$entity->status) {
+    return FALSE;
+  }
+  $topic = $type === 'topic' ? $entity : entity_load('entity_forum_topic', $entity->topic_id);
+  return $topic ? entity_forum_topic_view_access($topic) : FALSE;
+}
+
+/**
+ * Files a report about a forum post for moderator attention.
+ *
+ * One open report per member per post: while the member already has an
+ * unresolved report on the target, no duplicate row is created. The
+ * reporter's display name is snapshotted like post author names, so the
+ * report stays attributable after account deletion.
+ *
+ * @param string $entity_type
+ *   entity_forum_topic or entity_forum_reply.
+ * @param int $entity_id
+ *   The reported entity ID.
+ * @param string $reason
+ *   The reporter's reason.
+ * @param object|null $account
+ *   The reporting account; defaults to the current user.
+ *
+ * @return int|false
+ *   The new report_id, or FALSE when the member already has an open
+ *   report on this post.
+ */
+function entity_forum_report_create($entity_type, $entity_id, $reason, $account = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  $open = db_query('SELECT report_id FROM {entity_forum_report} WHERE entity_type = :type AND entity_id = :id AND reporter_uid = :uid AND resolved = 0', array(
+    ':type' => $entity_type,
+    ':id' => $entity_id,
+    ':uid' => $account->uid,
+  ))->fetchField();
+  if ($open) {
+    return FALSE;
+  }
+  $report_id = db_insert('entity_forum_report')
+    ->fields(array(
+      'entity_type' => $entity_type,
+      'entity_id' => $entity_id,
+      'reporter_uid' => (int) $account->uid,
+      'reporter_name' => entity_forum_user_display_name($account),
+      'reason' => $reason,
+      'created' => REQUEST_TIME,
+    ))
+    ->execute();
+  watchdog('entity_forum', 'Content reported: @type @id by uid @uid (report @rid).', array(
+    '@type' => $entity_type,
+    '@id' => $entity_id,
+    '@uid' => $account->uid,
+    '@rid' => $report_id,
+  ), WATCHDOG_NOTICE);
+  return (int) $report_id;
+}
+
+/**
  * Whether the current request was made by htmx.
  *
  * htmx sends an HX-Request header with every request it issues; plain
@@ -1173,6 +1329,13 @@ function entity_forum_user_predelete($account) {
       '@uid' => $account->uid,
     ), WATCHDOG_NOTICE);
   }
+
+  // Reports keep their reporter_name snapshot from filing time; flip the
+  // uid negative like post authors so they stay queryable/reinstatable.
+  db_update('entity_forum_report')
+    ->fields(array('reporter_uid' => -(int) $account->uid))
+    ->condition('reporter_uid', $account->uid)
+    ->execute();
 
   // Release and delete the member's forum picture, if any.
   entity_forum_avatar_save($account, 0);
@@ -1515,6 +1678,10 @@ function entity_forum_entity_presave($entity, $type) {
   if ($type === 'entity_forum_reply' && !empty($entity->pending) && !empty($entity->status)) {
     $entity->pending = 0;
   }
+  if (in_array($type, array('entity_forum_topic', 'entity_forum_reply'), TRUE)
+    && empty($entity->pending) && !empty($entity->pending_reason)) {
+    $entity->pending_reason = '';
+  }
 }
 
 /**
@@ -1674,6 +1841,15 @@ function entity_forum_entity_update($entity, $type) {
 function entity_forum_entity_delete($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
+  }
+  // Reports about a deleted post are moot — remove them. Topic deletion
+  // cascades to replies below, and each cascaded reply delete comes back
+  // through this hook, so reply reports are covered too.
+  if (in_array($type, array('entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    db_delete('entity_forum_report')
+      ->condition('entity_type', $type)
+      ->condition('entity_id', (int) $entity->id())
+      ->execute();
   }
   if ($type === 'entity_forum_topic') {
     $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :topic_id', array(
@@ -1854,19 +2030,21 @@ function entity_forum_forum_counts() {
 }
 
 /**
- * Counts the posts currently held for moderator review.
+ * Counts the items currently awaiting moderator attention.
  *
- * Two indexed lookups, run only when a moderator is viewing (the
+ * Three indexed lookups, run only when a moderator is viewing (the
  * moderation panels and queue are permission-gated), so no caching is
  * needed.
  *
  * @return array
- *   Array with 'topics' and 'replies' pending counts.
+ *   Array with 'topics' and 'replies' pending counts and 'reports'
+ *   (unresolved content reports).
  */
 function entity_forum_pending_counts() {
   return array(
     'topics' => (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE pending = 1')->fetchField(),
     'replies' => (int) db_query('SELECT COUNT(reply_id) FROM {entity_forum_reply} WHERE pending = 1')->fetchField(),
+    'reports' => (int) db_query('SELECT COUNT(report_id) FROM {entity_forum_report} WHERE resolved = 0')->fetchField(),
   );
 }
 

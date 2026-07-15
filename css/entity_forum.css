@@ -40,6 +40,9 @@
   margin-bottom: 8px;
 }
 
+.entity-forum-content {
+    min-height: 4em;
+}
 
 /*-----Sub-forum rows ------------------------------*/
 
@@ -200,4 +203,13 @@ p.entity-forum-attachment-filename {
 .entity-forum-suspended {
     color: var(--warningred);
     margin: 0.5em 0;
+}
+
+/* "Reporting <author>: excerpt" line at the top of the report form. */
+.entity-forum-report-target {
+    background: #f5f5f5;
+    border-left: 3px solid #ccc;
+    padding: 0.5em 0.8em;
+    margin: 0.5em 0 1em;
+    font-size: 0.95em;
 }
