@@ -2674,16 +2674,17 @@ function entity_forum_posting_name_save($account, $posting_name) {
 
 /**
  * Implements hook_views_pre_render().
- * for some reason the strip html Views filter doesn't work on the admin replies view, so we do it here instead.
+ *
+ * Strips HTML from the content column of the admin replies view before
+ * the field is rewritten. The Views "Strip HTML tags" rewrite option
+ * can't be used there: the column is rewritten into a link, and the
+ * strip runs after the rewrite — it would strip the link itself.
  */
 function entity_forum_views_pre_render(&$view) {
-  // Target our administrative replies view
   if ($view->name == 'forum_replies_admin') {
     foreach ($view->result as $row) {
       if (isset($row->entity_forum_reply_content)) {
-        // Just strip the tags and overwrite the property to see if it updates
-        $raw_html = $row->entity_forum_reply_content;
-        $row->entity_forum_reply_content = strip_tags($raw_html);
+        $row->entity_forum_reply_content = strip_tags($row->entity_forum_reply_content);
       }
     }
   }

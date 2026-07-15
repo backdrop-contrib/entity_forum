@@ -122,47 +122,15 @@ function entity_forum_admin_topics() {
  * Page callback: admin overview of replies.
  *
  * @return string
- *   Rendered table of replies with pager.
+ *   The embedded forum_replies_admin view (filterable table + pager).
  */
 function entity_forum_admin_replies() {
-  $header = array(
-    t('Content'),
-    t('Topic'),
-    t('Author'),
-    array('data' => t('Created'), 'field' => 'created', 'sort' => 'desc'),
-    array('data' => t('Status'), 'field' => 'status'),
-    t('Operations'),
-  );
-
-  $query = db_select('entity_forum_reply', 'r')
-    ->extend('PagerDefault')
-    ->extend('TableSort')
-    ->fields('r', array('reply_id', 'content', 'topic_id', 'author_uid', 'author_name', 'created', 'status', 'pending'))
-    ->orderByHeader($header)
-    ->limit(50);
-  $result = $query->execute();
-
-  $rows = array();
-  foreach ($result as $reply) {
-    $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
-    $snippet = truncate_utf8(strip_tags($reply->content), 100, TRUE, TRUE);
-    $rows[] = array(
-      l($snippet, 'topic/' . $reply->topic_id, array('fragment' => 'reply-' . $reply->reply_id)),
-      $topic_title !== FALSE ? check_plain($topic_title) : t('N/A'),
-      entity_forum_format_author($reply->author_uid, $reply->author_name),
-      format_date($reply->created, 'short'),
-      $reply->pending ? t('Awaiting review') : ($reply->status ? t('Published') : t('Unpublished')),
-      _entity_forum_admin_operations('reply', $reply->reply_id),
-    );
-  }
-
-  $output = theme('table', array(
-    'header' => $header,
-    'rows' => $rows,
-    'empty' => t('No replies available.'),
-  ));
-  $output .= theme('pager');
-  return $output;
+  // The overview is the forum_replies_admin view (shipped in config/,
+  // built by Steve 2026-07-15), embedded so the columns and exposed
+  // filters stay adjustable at admin/structure/views. The content
+  // column's HTML is stripped in entity_forum_views_pre_render().
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
+  return views_embed_view('forum_replies_admin', 'default');
 }
 
 /**

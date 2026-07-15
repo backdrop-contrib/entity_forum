@@ -1,0 +1,18 @@
+
+/* Published/unpublished status indicators for forums. */
+
+.forum-unpublished,
+.forum-private {
+    color: red;
+    font-weight: bold;
+}
+
+.forum-published,
+.forum-public {
+    color: darkgreen;
+    font-weight: bold;
+}
+
+.forum-id {
+    text-align: right;
+}
