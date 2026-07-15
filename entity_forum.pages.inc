@@ -17,6 +17,7 @@
 function entity_forum_forums_page() {
   $forums = db_query('SELECT forum_id, title, description, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 ORDER BY weight, title')->fetchAll();
 
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
   // Filter out private forums the user may not see, then group by parent.
   $children = array();
   foreach ($forums as $forum) {
@@ -28,6 +29,11 @@ function entity_forum_forums_page() {
 
   $rows = array();
   _entity_forum_index_rows($children, 0, 0, $rows);
+
+  // Moderation panel for moderators, above the forum list.
+  if ($panel = _entity_forum_moderation_panel()) {
+    $build['moderation'] = $panel;
+  }
 
   $build['forums'] = array(
     '#theme' => 'table',
@@ -134,6 +140,11 @@ function entity_forum_forum_page($forum) {
     );
   }
 
+  // Moderation panel for moderators, above the subforum and topic lists.
+  if ($panel = _entity_forum_moderation_panel()) {
+    $build['moderation'] = $panel;
+  }
+
   // Sub-forums, if any: full rows with topic/post counts and last
   // activity (rolled up to include their own sub-forums), matching the
   // forums index rather than a plain bullet list.
@@ -173,6 +184,12 @@ function entity_forum_forum_page($forum) {
   if (entity_forum_topic_create_access($forum)) {
     $build['new_topic'] = array(
       '#markup' => '<div class="entity-forum-actions">' . l(t('Post new topic'), 'forum/' . $forum->id() . '/new-topic') . '</div>',
+    );
+  }
+  elseif (user_is_logged_in() && user_access('create entity forum topic')
+    && entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_SUSPENDED) {
+    $build['suspended'] = array(
+      '#markup' => '<div class="entity-forum-suspended">' . t('Your forum posting privileges are currently suspended.') . '</div>',
     );
   }
 
@@ -331,6 +348,12 @@ function entity_forum_topic_page($topic) {
       )) . '</div>',
     );
   }
+  elseif (user_is_logged_in() && user_access('create entity forum reply')
+    && entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_SUSPENDED) {
+    $build['suspended'] = array(
+      '#markup' => '<div class="entity-forum-suspended">' . t('Your forum posting privileges are currently suspended.') . '</div>',
+    );
+  }
   elseif (user_is_anonymous()) {
     $build['login'] = array(
       '#markup' => '<div class="entity-forum-login">' . t('<a href="@login">Log in</a> to reply.', array(
@@ -412,6 +435,211 @@ function entity_forum_reply_page($topic) {
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
   backdrop_set_title(t('Reply to: @title', array('@title' => $topic->title)));
   return backdrop_get_form('entity_forum_reply_frontend_form', $topic);
+}
+
+/**
+ * Builds the moderation panel shown above forum lists to moderators.
+ *
+ * A compact table styled like the subforum rows, with one row per
+ * non-empty moderation queue (topics awaiting review, replies awaiting
+ * review — reported content joins in a later step), each linking to the
+ * moderation page. Non-moderators, and moderators with nothing waiting,
+ * get nothing.
+ *
+ * @return array|null
+ *   Render array for the panel, or NULL when there is nothing to show.
+ */
+function _entity_forum_moderation_panel() {
+  if (!entity_forum_user_is_moderator()) {
+    return NULL;
+  }
+  $counts = entity_forum_pending_counts();
+  $rows = array();
+  if ($counts['topics']) {
+    $rows[] = array(
+      '<div class="entity-forum-title">' . l(t('Topics awaiting review'), 'forums/moderation') . '</div>',
+      $counts['topics'],
+    );
+  }
+  if ($counts['replies']) {
+    $rows[] = array(
+      '<div class="entity-forum-title">' . l(t('Replies awaiting review'), 'forums/moderation') . '</div>',
+      $counts['replies'],
+    );
+  }
+  if (!$rows) {
+    return NULL;
+  }
+  return array(
+    '#theme' => 'table',
+    '#header' => array(t('Moderation'), t('Items')),
+    '#rows' => $rows,
+    '#attributes' => array('class' => array('entity-forum-subforums', 'entity-forum-moderation')),
+  );
+}
+
+/**
+ * Page callback: the moderation queue (forums/moderation).
+ *
+ * Lists topics and replies held for review with Approve / Keep hidden
+ * actions (CSRF-token protected links; see
+ * entity_forum_moderation_action()). Reply content is rendered in full —
+ * held replies are unpublished, so this queue is the only place a
+ * moderator can read them. Edit and delete links appear when the viewer
+ * additionally holds the administer topic/reply permissions.
+ *
+ * @return array
+ *   Render array.
+ */
+function entity_forum_moderation_page() {
+  $build = array();
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_set_breadcrumb(0);
+
+  $forum_titles = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
+
+  // Topics awaiting review.
+  $topics = db_query('SELECT topic_id, title, forum_id, author_uid, author_name, created FROM {entity_forum_topic} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
+  $topic_rows = array();
+  foreach ($topics as $topic) {
+    $topic_rows[] = array(
+      l($topic->title, 'topic/' . $topic->topic_id),
+      isset($forum_titles[$topic->forum_id]) ? check_plain($forum_titles[$topic->forum_id]) : t('N/A'),
+      entity_forum_format_author($topic->author_uid, $topic->author_name),
+      format_date($topic->created, 'short'),
+      _entity_forum_moderation_actions('topic', $topic->topic_id),
+    );
+  }
+  $build['topics_title'] = array('#markup' => '<h3>' . t('Topics awaiting review') . '</h3>');
+  $build['topics'] = array(
+    '#theme' => 'table',
+    '#header' => array(t('Topic'), t('Forum'), t('Author'), t('Posted'), t('Actions')),
+    '#rows' => $topic_rows,
+    '#empty' => t('No topics are waiting for review.'),
+  );
+
+  // Replies awaiting review, with their content rendered for reading.
+  $replies = db_query('SELECT reply_id, content, format, topic_id, author_uid, author_name, created FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
+  $reply_rows = array();
+  foreach ($replies as $reply) {
+    $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
+    $reply_rows[] = array(
+      '<div class="entity-forum-moderation-content">' . check_markup($reply->content, $reply->format ? $reply->format : filter_default_format(), '', TRUE) . '</div>',
+      $topic_title !== FALSE ? l($topic_title, 'topic/' . $reply->topic_id) : t('N/A'),
+      entity_forum_format_author($reply->author_uid, $reply->author_name),
+      format_date($reply->created, 'short'),
+      _entity_forum_moderation_actions('reply', $reply->reply_id),
+    );
+  }
+  $build['replies_title'] = array('#markup' => '<h3>' . t('Replies awaiting review') . '</h3>');
+  $build['replies'] = array(
+    '#theme' => 'table',
+    '#header' => array(t('Reply'), t('Topic'), t('Author'), t('Posted'), t('Actions')),
+    '#rows' => $reply_rows,
+    '#empty' => t('No replies are waiting for review.'),
+  );
+
+  return $build;
+}
+
+/**
+ * Builds the action links for one moderation queue row.
+ *
+ * Approve and Keep hidden are token-protected callback links available to
+ * every moderator; Edit and Delete (the admin forms) are added when the
+ * viewer's entity access allows them.
+ *
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param int $id
+ *   The entity ID.
+ *
+ * @return string
+ *   Rendered links.
+ */
+function _entity_forum_moderation_actions($type, $id) {
+  $links = array(
+    'approve' => array(
+      'title' => t('Approve'),
+      'href' => "forums/moderation/approve/$type/$id",
+      'query' => array('token' => backdrop_get_token("entity_forum_moderation:approve:$type:$id")),
+    ),
+    'hide' => array(
+      'title' => t('Keep hidden'),
+      'href' => "forums/moderation/hide/$type/$id",
+      'query' => array('token' => backdrop_get_token("entity_forum_moderation:hide:$type:$id")),
+    ),
+  );
+  $access_callback = "entity_forum_{$type}_access";
+  $entity = entity_load("entity_forum_$type", $id);
+  if ($entity && $access_callback('update', $entity)) {
+    $links['edit'] = array('title' => t('Edit'), 'href' => "admin/content/entity-forum/$type/$id/edit", 'query' => backdrop_get_destination());
+  }
+  if ($entity && $access_callback('delete', $entity)) {
+    $links['delete'] = array('title' => t('Delete'), 'href' => "admin/content/entity-forum/$type/$id/delete", 'query' => backdrop_get_destination());
+  }
+  return theme('links', array(
+    'links' => $links,
+    'attributes' => array('class' => array('links', 'inline')),
+  ));
+}
+
+/**
+ * Page callback: applies a moderation action to a held post.
+ *
+ * Approve releases the hold — a topic returns to the normal listing, a
+ * reply is published (statistics and counts refresh through the entity
+ * hooks). Keep hidden clears the pending flag only, so the post leaves
+ * the queue but stays invisible (admin_only topic / unpublished reply);
+ * it remains reachable through the admin overviews. Links carry a CSRF
+ * token seeded per action, checked here on top of the menu access check.
+ *
+ * @param string $action
+ *   'approve' or 'hide'.
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param int $id
+ *   The entity ID.
+ *
+ * @return int|void
+ *   A menu status code on failure; otherwise redirects to the queue.
+ */
+function entity_forum_moderation_action($action, $type, $id) {
+  if (!in_array($type, array('topic', 'reply'), TRUE) || !in_array($action, array('approve', 'hide'), TRUE)) {
+    return MENU_NOT_FOUND;
+  }
+  if (!isset($_GET['token']) || !backdrop_valid_token($_GET['token'], "entity_forum_moderation:$action:$type:$id")) {
+    return MENU_ACCESS_DENIED;
+  }
+  $entity = entity_load("entity_forum_$type", $id);
+  if (!$entity) {
+    return MENU_NOT_FOUND;
+  }
+
+  if ($action === 'approve') {
+    if ($type === 'topic') {
+      $entity->listing = ENTITY_FORUM_LISTING_NORMAL;
+    }
+    else {
+      $entity->status = 1;
+    }
+    $entity->pending = 0;
+    $entity->save();
+    backdrop_set_message($type === 'topic'
+      ? t('The topic %title has been approved and is now listed.', array('%title' => $entity->title))
+      : t('The reply has been approved and is now published.'));
+    watchdog('entity_forum', 'Moderation: approved @type @id.', array('@type' => $type, '@id' => $id), WATCHDOG_NOTICE);
+  }
+  else {
+    $entity->pending = 0;
+    $entity->save();
+    backdrop_set_message($type === 'topic'
+      ? t('The topic %title stays hidden (visible to moderators only). It can still be managed from the admin Topics list.', array('%title' => $entity->title))
+      : t('The reply stays hidden (unpublished). It can still be managed from the admin Replies list.'));
+    watchdog('entity_forum', 'Moderation: kept @type @id hidden.', array('@type' => $type, '@id' => $id), WATCHDOG_NOTICE);
+  }
+
+  backdrop_goto('forums/moderation');
 }
 
 /**
@@ -661,6 +889,11 @@ function entity_forum_topic_frontend_form_validate($form, &$form_state) {
 
 /**
  * Submit handler for entity_forum_topic_frontend_form().
+ *
+ * Topics by members with the 'review' posting status are held for
+ * moderation: pending + admin_only listing, so the existing visibility
+ * machinery hides them until a moderator approves. Held authors are sent
+ * back to the forum page — their own topic page would deny them access.
  */
 function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $values = $form_state['values'];
@@ -668,11 +901,22 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $topic->title = $values['title'];
   $topic->content = $values['content']['value'];
   $topic->format = $values['content']['format'];
+  $held = entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_REVIEW;
+  if ($held) {
+    $topic->listing = ENTITY_FORUM_LISTING_ADMIN_ONLY;
+    $topic->pending = 1;
+  }
   field_attach_submit('entity_forum_topic', $topic, $form, $form_state);
   $topic->save();
 
-  backdrop_set_message(t('Your topic %title has been posted.', array('%title' => $topic->title)));
-  $form_state['redirect'] = 'topic/' . $topic->id();
+  if ($held) {
+    backdrop_set_message(t('Thank you — your topic %title has been received and will appear once a moderator has approved it.', array('%title' => $topic->title)));
+    $form_state['redirect'] = 'forum/' . $topic->forum_id;
+  }
+  else {
+    backdrop_set_message(t('Your topic %title has been posted.', array('%title' => $topic->title)));
+    $form_state['redirect'] = 'topic/' . $topic->id();
+  }
 }
 
 /**
@@ -783,12 +1027,26 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $reply->content = $values['content']['value'];
   $reply->format = $values['content']['format'];
   $reply->reply_to_id = (int) $values['reply_to_id'];
+  // Replies by members with the 'review' posting status are held for
+  // moderation: pending + unpublished, invisible everywhere (topic page,
+  // stats, counts) until a moderator approves.
+  $held = entity_forum_user_posting_status() === ENTITY_FORUM_POSTING_REVIEW;
+  if ($held) {
+    $reply->status = 0;
+    $reply->pending = 1;
+  }
   if (!_entity_forum_is_htmx_request()) {
     field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
   }
   $reply->save();
 
-  backdrop_set_message(t('Your reply has been posted.'));
+  backdrop_set_message($held
+    ? t('Thank you — your reply has been received and will appear once a moderator has approved it.')
+    : t('Your reply has been posted.'));
+
+  // A held reply is not visible on the topic page, so its #reply-N anchor
+  // would not exist — redirect to the plain topic page instead.
+  $redirect_options = $held ? array() : array('fragment' => 'reply-' . $reply->id());
 
   if (_entity_forum_is_htmx_request()) {
     // Custom header instead of HX-Redirect: the redirect target is
@@ -799,11 +1057,11 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
     // a real reload when the path is unchanged. Direct header():
     // backdrop_add_http_header() queues for page delivery, which this
     // early exit bypasses.
-    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id())));
+    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id(), $redirect_options));
     backdrop_exit();
   }
 
-  $form_state['redirect'] = array('topic/' . $topic->id(), array('fragment' => 'reply-' . $reply->id()));
+  $form_state['redirect'] = array('topic/' . $topic->id(), $redirect_options);
 }
 
 /**
@@ -827,6 +1085,24 @@ function entity_forum_user_posts_page($account) {
   $build['posting_name_form'] = backdrop_get_form('entity_forum_posting_name_form', $account);
   $build['posting_name_form']['#weight'] = -10;
 
+  // Tell the account owner when their posting is restricted; moderators
+  // manage the status through the form above instead.
+  if ($GLOBALS['user']->uid == $account->uid) {
+    $posting_status = entity_forum_user_posting_status($account);
+    if ($posting_status === ENTITY_FORUM_POSTING_REVIEW) {
+      $build['posting_status_notice'] = array(
+        '#markup' => '<div class="messages info">' . t('Your new forum posts are checked by a moderator before they appear.') . '</div>',
+        '#weight' => -11,
+      );
+    }
+    elseif ($posting_status === ENTITY_FORUM_POSTING_SUSPENDED) {
+      $build['posting_status_notice'] = array(
+        '#markup' => '<div class="messages warning">' . t('Your forum posting privileges are currently suspended.') . '</div>',
+        '#weight' => -11,
+      );
+    }
+  }
+
   $build['intro'] = array(
     '#markup' => '<p>' . t('Forum posts by %name.', array(
       '%name' => entity_forum_user_display_name($account),
@@ -836,7 +1112,7 @@ function entity_forum_user_posts_page($account) {
   // Topics.
   $topics = db_select('entity_forum_topic', 't')
     ->extend('PagerDefault')
-    ->fields('t', array('topic_id', 'title', 'created', 'reply_count', 'status'))
+    ->fields('t', array('topic_id', 'title', 'created', 'reply_count', 'status', 'pending'))
     ->condition('t.author_uid', $account->uid)
     ->orderBy('t.created', 'DESC')
     ->limit(25);
@@ -847,7 +1123,7 @@ function entity_forum_user_posts_page($account) {
       l($topic->title, 'topic/' . $topic->topic_id),
       format_date($topic->created, 'short'),
       $topic->reply_count,
-      $topic->status ? t('Published') : t('Unpublished'),
+      $topic->pending ? t('Awaiting review') : ($topic->status ? t('Published') : t('Unpublished')),
     );
   }
   $build['topics_title'] = array('#markup' => '<h3>' . t('Topics started') . '</h3>');
@@ -862,7 +1138,7 @@ function entity_forum_user_posts_page($account) {
   // Replies.
   $replies = db_select('entity_forum_reply', 'r')
     ->extend('PagerDefault')
-    ->fields('r', array('reply_id', 'content', 'topic_id', 'created', 'status'))
+    ->fields('r', array('reply_id', 'content', 'topic_id', 'created', 'status', 'pending'))
     ->condition('r.author_uid', $account->uid)
     ->orderBy('r.created', 'DESC')
     ->limit(25);
@@ -874,7 +1150,7 @@ function entity_forum_user_posts_page($account) {
       l(truncate_utf8(strip_tags($reply->content), 80, TRUE, TRUE), 'topic/' . $reply->topic_id, array('fragment' => 'reply-' . $reply->reply_id)),
       $topic_title !== FALSE ? check_plain($topic_title) : t('N/A'),
       format_date($reply->created, 'short'),
-      $reply->status ? t('Published') : t('Unpublished'),
+      $reply->pending ? t('Awaiting review') : ($reply->status ? t('Published') : t('Unpublished')),
     );
   }
   $build['replies_title'] = array('#markup' => '<h3>' . t('Replies') . '</h3>');
@@ -928,6 +1204,19 @@ function entity_forum_posting_name_form($form, &$form_state, $account) {
       'file_validate_size' => array(2 * 1024 * 1024),
     ),
   );
+
+  // Moderation control, shown only to moderators and user administrators:
+  // hold this member's new posts for review, or suspend posting.
+  if (entity_forum_user_is_moderator() || user_access('administer users')) {
+    $form['entity_forum_posting_status'] = array(
+      '#type' => 'select',
+      '#title' => t('Posting status'),
+      '#options' => entity_forum_posting_status_options(),
+      '#default_value' => entity_forum_user_posting_status($account),
+      '#description' => t('Moderation setting — visible to moderators only. Posts already held for review stay in the moderation queue when the status returns to normal.'),
+    );
+  }
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -947,5 +1236,9 @@ function entity_forum_posting_name_form($form, &$form_state, $account) {
 function entity_forum_posting_name_form_submit($form, &$form_state) {
   entity_forum_avatar_save($form['#account'], $form_state['values']['entity_forum_avatar']);
   entity_forum_posting_name_save($form['#account'], $form_state['values']['entity_forum_posting_name']);
+  // Present only when the submitter is a moderator or user administrator.
+  if (isset($form_state['values']['entity_forum_posting_status'])) {
+    entity_forum_posting_status_save($form['#account'], $form_state['values']['entity_forum_posting_status']);
+  }
   backdrop_set_message(t('Your forum settings have been saved.'));
 }

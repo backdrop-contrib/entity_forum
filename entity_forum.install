@@ -289,6 +289,13 @@ function entity_forum_schema() {
         'default' => 'normal',
         'description' => 'Topic list visibility: normal (listed), admin_only (moderators only), or unlisted (hidden from lists, e.g. node-attached comment threads).',
       ),
+      'pending' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Awaiting moderator review (1 = in the moderation queue). Pending topics are held with listing = admin_only.',
+      ),
       'reply_count' => array(
         'type' => 'int',
         'not null' => TRUE,
@@ -331,6 +338,7 @@ function entity_forum_schema() {
       'author_uid' => array('author_uid'),
       'forum_listing' => array('forum_id', 'status', 'sticky', 'last_active_time'),
       'listing' => array('listing'),
+      'pending' => array('pending'),
     ),
   );
 
@@ -406,6 +414,13 @@ function entity_forum_schema() {
         'default' => 0,
         'description' => 'Parent {entity_forum_reply}.reply_id when threaded (0 = direct reply to topic).',
       ),
+      'pending' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Awaiting moderator review (1 = in the moderation queue). Pending replies are held with status = 0.',
+      ),
     ),
     'primary key' => array('reply_id'),
     'indexes' => array(
@@ -415,6 +430,7 @@ function entity_forum_schema() {
       'author_uid' => array('author_uid'),
       'reply_to_id' => array('reply_to_id'),
       'topic_listing' => array('topic_id', 'status', 'created'),
+      'pending' => array('pending'),
     ),
   );
 
@@ -584,6 +600,32 @@ function entity_forum_update_1003() {
     ), array('indexes' => array('listing' => array('listing'))));
   }
   // Rebuild the schema cache so entity saves see the new column at once
+  // (backdrop_write_record silently drops fields missing from the cache).
+  backdrop_get_complete_schema(TRUE);
+}
+
+/**
+ * Adds the pending (awaiting review) column to topics and replies.
+ *
+ * Members with the 'review' posting status have their new posts held for
+ * moderation: pending topics are hidden via listing = admin_only, pending
+ * replies via status = 0 — so the existing visibility machinery covers
+ * them and this column only marks what belongs in the moderation queue.
+ */
+function entity_forum_update_1004() {
+  $spec = array(
+    'type' => 'int',
+    'size' => 'tiny',
+    'not null' => TRUE,
+    'default' => 0,
+    'description' => 'Awaiting moderator review (1 = in the moderation queue).',
+  );
+  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
+    if (!db_field_exists($table, 'pending')) {
+      db_add_field($table, 'pending', $spec, array('indexes' => array('pending' => array('pending'))));
+    }
+  }
+  // Rebuild the schema cache so entity saves see the new columns at once
   // (backdrop_write_record silently drops fields missing from the cache).
   backdrop_get_complete_schema(TRUE);
 }

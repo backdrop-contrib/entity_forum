@@ -71,7 +71,7 @@ function entity_forum_admin_topics() {
   $query = db_select('entity_forum_topic', 't')
     ->extend('PagerDefault')
     ->extend('TableSort')
-    ->fields('t', array('topic_id', 'title', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status'))
+    ->fields('t', array('topic_id', 'title', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status', 'pending'))
     ->orderByHeader($header)
     ->limit(50);
   $result = $query->execute();
@@ -94,7 +94,7 @@ function entity_forum_admin_topics() {
       $topic->reply_count,
       format_date($topic->last_active_time, 'short'),
       isset($listing_labels[$topic->listing]) ? $listing_labels[$topic->listing] : check_plain($topic->listing),
-      $topic->status ? t('Published') : t('Unpublished'),
+      $topic->pending ? t('Awaiting review') : ($topic->status ? t('Published') : t('Unpublished')),
       _entity_forum_admin_operations('topic', $topic->topic_id),
     );
   }
@@ -127,7 +127,7 @@ function entity_forum_admin_replies() {
   $query = db_select('entity_forum_reply', 'r')
     ->extend('PagerDefault')
     ->extend('TableSort')
-    ->fields('r', array('reply_id', 'content', 'topic_id', 'author_uid', 'author_name', 'created', 'status'))
+    ->fields('r', array('reply_id', 'content', 'topic_id', 'author_uid', 'author_name', 'created', 'status', 'pending'))
     ->orderByHeader($header)
     ->limit(50);
   $result = $query->execute();
@@ -141,7 +141,7 @@ function entity_forum_admin_replies() {
       $topic_title !== FALSE ? check_plain($topic_title) : t('N/A'),
       entity_forum_format_author($reply->author_uid, $reply->author_name),
       format_date($reply->created, 'short'),
-      $reply->status ? t('Published') : t('Unpublished'),
+      $reply->pending ? t('Awaiting review') : ($reply->status ? t('Published') : t('Unpublished')),
       _entity_forum_admin_operations('reply', $reply->reply_id),
     );
   }

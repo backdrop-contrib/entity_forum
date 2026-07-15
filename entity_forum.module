@@ -41,6 +41,109 @@ function entity_forum_topic_listing_options() {
 }
 
 /**
+ * Member posting statuses: how a member's new posts are treated.
+ *
+ * - normal: posts appear immediately (the default; not stored).
+ * - review: every new topic and reply is held for moderator approval
+ *   before it becomes visible (pending flag + the existing hold
+ *   machinery: admin_only listing for topics, unpublished for replies).
+ * - suspended: the member cannot post at all.
+ */
+define('ENTITY_FORUM_POSTING_NORMAL', 'normal');
+define('ENTITY_FORUM_POSTING_REVIEW', 'review');
+define('ENTITY_FORUM_POSTING_SUSPENDED', 'suspended');
+
+/**
+ * Returns the member posting status options for select elements.
+ *
+ * @return array
+ *   Options keyed by posting status machine name.
+ */
+function entity_forum_posting_status_options() {
+  return array(
+    ENTITY_FORUM_POSTING_NORMAL => t('Normal — posts appear immediately'),
+    ENTITY_FORUM_POSTING_REVIEW => t('Review — posts are held until a moderator approves them'),
+    ENTITY_FORUM_POSTING_SUSPENDED => t('Suspended — cannot post topics or replies'),
+  );
+}
+
+/**
+ * Returns a member's forum posting status.
+ *
+ * Stored in the account data array like the posting name; absent means
+ * normal. Anonymous (and gone) accounts report normal — they are gated
+ * by permissions, not posting status.
+ *
+ * @param object|int|null $account
+ *   A user account or uid; defaults to the current user.
+ *
+ * @return string
+ *   One of the ENTITY_FORUM_POSTING_* values.
+ */
+function entity_forum_user_posting_status($account = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  if (is_numeric($account)) {
+    $account = $account > 0 ? user_load($account) : FALSE;
+  }
+  if ($account && !empty($account->data['entity_forum_posting_status'])) {
+    $status = $account->data['entity_forum_posting_status'];
+    if (in_array($status, array(ENTITY_FORUM_POSTING_REVIEW, ENTITY_FORUM_POSTING_SUSPENDED), TRUE)) {
+      return $status;
+    }
+  }
+  return ENTITY_FORUM_POSTING_NORMAL;
+}
+
+/**
+ * Saves a member's forum posting status.
+ *
+ * 'normal' removes the entry from the account data array so unrestricted
+ * members carry no marker at all.
+ *
+ * @param object $account
+ *   The account the status applies to.
+ * @param string $status
+ *   One of the ENTITY_FORUM_POSTING_* values.
+ */
+function entity_forum_posting_status_save($account, $status) {
+  $data = $account->data;
+  if ($status === ENTITY_FORUM_POSTING_REVIEW || $status === ENTITY_FORUM_POSTING_SUSPENDED) {
+    $data['entity_forum_posting_status'] = $status;
+  }
+  else {
+    unset($data['entity_forum_posting_status']);
+  }
+  db_update('users')
+    ->fields(array('data' => serialize($data)))
+    ->condition('uid', $account->uid)
+    ->execute();
+  $account->data = $data;
+  entity_get_controller('user')->resetCache(array($account->uid));
+}
+
+/**
+ * Whether an account is a forum moderator.
+ *
+ * Moderators see moderation panels and held (admin_only) topics, work the
+ * moderation queue, and set member posting statuses. The dedicated
+ * 'moderate entity forum' permission grants it; the broader administer
+ * permissions imply it.
+ *
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   TRUE when the account may moderate.
+ */
+function entity_forum_user_is_moderator($account = NULL) {
+  return user_access('moderate entity forum', $account)
+    || user_access('administer entity forum topic', $account)
+    || user_access('administer entity forum', $account);
+}
+
+/**
  * Implements hook_entity_info().
  */
 function entity_forum_entity_info() {
@@ -247,7 +350,7 @@ function entity_forum_views_query_alter(&$view, &$query) {
     return;
   }
   $allowed = array(ENTITY_FORUM_LISTING_NORMAL);
-  if (user_access('administer entity forum topic') || user_access('administer entity forum')) {
+  if (entity_forum_user_is_moderator()) {
     $allowed[] = ENTITY_FORUM_LISTING_ADMIN_ONLY;
   }
   $query->add_where(0, 'entity_forum_topic.listing', $allowed, 'IN');
@@ -293,6 +396,10 @@ function entity_forum_permission() {
     'administer entity forum reply' => array(
       'title' => t('Administer Entity Forum replies'),
       'description' => t('Edit and delete <em>any</em> reply (moderator). Not needed to edit one\'s own replies.'),
+    ),
+    'moderate entity forum' => array(
+      'title' => t('Moderate Entity Forum'),
+      'description' => t('See the moderation panels and queue, approve posts held for review, view moderator-only topics, and set member posting statuses. Combine with the administer topic/reply permissions for full moderator rights.'),
     ),
   );
 }
@@ -346,6 +453,30 @@ function entity_forum_menu() {
     'access callback' => 'entity_forum_reply_create_access',
     'access arguments' => array(1),
     'delivery callback' => 'entity_forum_htmx_deliver',
+    'file' => 'entity_forum.pages.inc',
+  );
+
+  // Moderation queue: posts held for review, with approve/keep-hidden
+  // actions. A frontend page (not admin/*) so it can be linked from the
+  // moderation panels shown above the forum lists.
+  $items['forums/moderation'] = array(
+    'title' => 'Forum moderation',
+    'page callback' => 'entity_forum_moderation_page',
+    'access callback' => 'entity_forum_user_is_moderator',
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['forums/moderation/approve/%/%'] = array(
+    'page callback' => 'entity_forum_moderation_action',
+    'page arguments' => array('approve', 3, 4),
+    'access callback' => 'entity_forum_user_is_moderator',
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['forums/moderation/hide/%/%'] = array(
+    'page callback' => 'entity_forum_moderation_action',
+    'page arguments' => array('hide', 3, 4),
+    'access callback' => 'entity_forum_user_is_moderator',
+    'type' => MENU_CALLBACK,
     'file' => 'entity_forum.pages.inc',
   );
 
@@ -797,8 +928,7 @@ function entity_forum_topic_access($op, $topic = NULL, $account = NULL, $entity_
       // alone; normal and unlisted topics are viewable by anyone who can
       // reach them (the forum-level check runs separately).
       if ($topic && isset($topic->listing) && $topic->listing === ENTITY_FORUM_LISTING_ADMIN_ONLY) {
-        return user_access('administer entity forum topic', $account)
-          || user_access('administer entity forum', $account);
+        return entity_forum_user_is_moderator($account);
       }
       return TRUE;
 
@@ -870,6 +1000,8 @@ function entity_forum_topic_view_access($topic) {
 /**
  * Menu access callback: can the user post a new topic in this forum?
  *
+ * Suspended members cannot post regardless of permissions.
+ *
  * @param EntityForumForum $forum
  *   The forum to post in.
  *
@@ -879,7 +1011,8 @@ function entity_forum_topic_view_access($topic) {
 function entity_forum_topic_create_access($forum) {
   return $forum->status
     && entity_forum_forum_access('view', $forum)
-    && user_access('create entity forum topic');
+    && user_access('create entity forum topic')
+    && entity_forum_user_posting_status() !== ENTITY_FORUM_POSTING_SUSPENDED;
 }
 
 /**
@@ -901,7 +1034,8 @@ function entity_forum_reply_create_access($topic) {
   }
   return !$topic->closed
     && entity_forum_topic_view_access($topic)
-    && user_access('create entity forum reply');
+    && user_access('create entity forum reply')
+    && entity_forum_user_posting_status() !== ENTITY_FORUM_POSTING_SUSPENDED;
 }
 
 /**
@@ -1150,6 +1284,7 @@ function entity_forum_entity_property_info_alter(&$info) {
     'voice_count' => t('Voices'),
     'attachment_count' => t('Attachment count'),
     'listing' => t('Topic list visibility'),
+    'pending' => t('Awaiting review'),
   );
   foreach ($types as $entity_type => $columns) {
     if (!isset($info[$entity_type]['properties'])) {
@@ -1369,6 +1504,16 @@ function entity_forum_entity_presave($entity, $type) {
         $entity->author_name = entity_forum_user_display_name($account);
       }
     }
+  }
+
+  // The pending flag only marks posts still held for review, so releasing
+  // the hold by ANY route — the queue's Approve action, the admin edit
+  // forms, or API saves — drops the post out of the moderation queue.
+  if ($type === 'entity_forum_topic' && !empty($entity->pending) && $entity->listing !== ENTITY_FORUM_LISTING_ADMIN_ONLY) {
+    $entity->pending = 0;
+  }
+  if ($type === 'entity_forum_reply' && !empty($entity->pending) && !empty($entity->status)) {
+    $entity->pending = 0;
   }
 }
 
@@ -1709,6 +1854,23 @@ function entity_forum_forum_counts() {
 }
 
 /**
+ * Counts the posts currently held for moderator review.
+ *
+ * Two indexed lookups, run only when a moderator is viewing (the
+ * moderation panels and queue are permission-gated), so no caching is
+ * needed.
+ *
+ * @return array
+ *   Array with 'topics' and 'replies' pending counts.
+ */
+function entity_forum_pending_counts() {
+  return array(
+    'topics' => (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE pending = 1')->fetchField(),
+    'replies' => (int) db_query('SELECT COUNT(reply_id) FROM {entity_forum_reply} WHERE pending = 1')->fetchField(),
+  );
+}
+
+/**
  * Clears the cached forum counts map.
  *
  * Called whenever forums, topics or replies change, so
@@ -1816,14 +1978,19 @@ function entity_forum_format_byline($uid, $timestamp, $author_name = '') {
 /**
  * Menu access callback: may the viewer see this account's Forum tab?
  *
+ * Moderators are included so they can review a member's posts and set
+ * the member's posting status from the same tab.
+ *
  * @param object $account
  *   The account whose posts would be listed.
  *
  * @return bool
- *   TRUE for the account owner and user administrators.
+ *   TRUE for the account owner, user administrators and forum moderators.
  */
 function entity_forum_user_posts_access($account) {
-  return $GLOBALS['user']->uid == $account->uid || user_access('administer users');
+  return $GLOBALS['user']->uid == $account->uid
+    || user_access('administer users')
+    || entity_forum_user_is_moderator();
 }
 
 /**

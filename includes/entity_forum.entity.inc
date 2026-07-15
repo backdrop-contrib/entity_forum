@@ -220,6 +220,12 @@ class EntityForumTopic extends Entity {
   public $listing = 'normal';
 
   /**
+   * Awaiting moderator review (held with listing = admin_only).
+   * @var int
+   */
+  public $pending = 0;
+
+  /**
    * Denormalized count of published replies (maintained automatically).
    * @var int
    */
@@ -362,6 +368,12 @@ class EntityForumReply extends Entity {
    * @var int
    */
   public $reply_to_id = 0;
+
+  /**
+   * Awaiting moderator review (held with status = 0).
+   * @var int
+   */
+  public $pending = 0;
 
   /**
    * Constructs a reply, filling runtime defaults for new entities.

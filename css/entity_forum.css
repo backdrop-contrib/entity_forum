@@ -1,6 +1,18 @@
 /**
- * Entity Forum frontend styles.
+ * Entity Forum styles.
  */
+
+:root {
+    --warningred: red;
+}
+
+.entity-forum-private {
+    color: var(--warningred);
+}
+
+/*-----Private group forum styles ---------------------------*/
+
+
 
 /* Post author picture, floated beside the post body. */
 .entity-forum-post {
@@ -167,5 +179,25 @@ p.entity-forum-attachment-filename {
 }
 .entity-forum-full-form-link {
     font-size: 0.9em;
+    margin: 0.5em 0;
+}
+
+/* Moderation panel above forum lists (moderators only). */
+.entity-forum-moderation th {
+    background: #fff3e0;
+}
+.entity-forum-moderation td {
+    background: #fffaf2;
+}
+
+/* Full reply content shown in the moderation queue for review. */
+.entity-forum-moderation-content {
+    max-width: 480px;
+    overflow-wrap: break-word;
+}
+
+/* Notice shown to suspended members in place of posting actions. */
+.entity-forum-suspended {
+    color: var(--warningred);
     margin: 0.5em 0;
 }
