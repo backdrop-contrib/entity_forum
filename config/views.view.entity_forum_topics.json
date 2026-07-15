@@ -1,0 +1,250 @@
+{
+    "_config_name": "views.view.entity_forum_topics",
+    "name": "entity_forum_topics",
+    "description": "Topic list embedded on each forum page by the entity_forum module. Columns are site-builder editable here.",
+    "tag": "entity_forum",
+    "disabled": false,
+    "base_table": "entity_forum_topic",
+    "human_name": "Forum topics",
+    "core": 1,
+    "display": {
+        "default": {
+            "display_title": "Default",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "access": {
+                    "type": "none"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic"
+                },
+                "pager": {
+                    "type": "full",
+                    "options": {
+                        "items_per_page": "25"
+                    }
+                },
+                "style_plugin": "table",
+                "style_options": {
+                    "columns": {
+                        "title": "title",
+                        "attachment_count": "title",
+                        "sticky": "title",
+                        "closed": "title",
+                        "author_name": "author_name",
+                        "voice_count": "voice_count",
+                        "reply_count": "reply_count",
+                        "last_active_time": "last_active_time",
+                        "author_name_1": "last_active_time"
+                    },
+                    "default": "-1",
+                    "info": {
+                        "title": {
+                            "sortable": 1,
+                            "separator": " "
+                        },
+                        "author_name": {
+                            "sortable": 1,
+                            "separator": ""
+                        },
+                        "voice_count": {
+                            "sortable": 1,
+                            "separator": ""
+                        },
+                        "reply_count": {
+                            "sortable": 1,
+                            "separator": ""
+                        },
+                        "last_active_time": {
+                            "sortable": 1,
+                            "separator": " "
+                        }
+                    },
+                    "override": 1,
+                    "sticky": 0,
+                    "empty_table": 1
+                },
+                "relationships": {
+                    "last_reply_id": {
+                        "id": "last_reply_id",
+                        "table": "entity_forum_topic",
+                        "field": "last_reply_id",
+                        "label": "Last reply",
+                        "required": 0
+                    }
+                },
+                "fields": {
+                    "topic_id": {
+                        "id": "topic_id",
+                        "table": "entity_forum_topic",
+                        "field": "topic_id",
+                        "label": "",
+                        "exclude": true,
+                        "separator": ""
+                    },
+                    "title": {
+                        "id": "title",
+                        "table": "entity_forum_topic",
+                        "field": "title",
+                        "label": "Topic",
+                        "alter": {
+                            "make_link": 1,
+                            "path": "topic/[topic_id]"
+                        }
+                    },
+                    "attachment_count": {
+                        "id": "attachment_count",
+                        "table": "entity_forum_topic",
+                        "field": "attachment_count",
+                        "label": "",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "📎"
+                        },
+                        "empty_zero": true,
+                        "hide_empty": true
+                    },
+                    "sticky": {
+                        "id": "sticky",
+                        "table": "entity_forum_topic",
+                        "field": "sticky",
+                        "label": "",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "(Sticky)"
+                        },
+                        "empty_zero": true,
+                        "hide_empty": true
+                    },
+                    "closed": {
+                        "id": "closed",
+                        "table": "entity_forum_topic",
+                        "field": "closed",
+                        "label": "",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "(Closed)"
+                        },
+                        "empty_zero": true,
+                        "hide_empty": true
+                    },
+                    "author_avatar": {
+                        "id": "author_avatar",
+                        "table": "entity_forum_topic",
+                        "field": "author_avatar",
+                        "label": "",
+                        "exclude": true,
+                        "image_style": "entity_forum_avatar_small"
+                    },
+                    "author_name": {
+                        "id": "author_name",
+                        "table": "entity_forum_topic",
+                        "field": "author_name",
+                        "label": "Started by",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "[author_avatar] [author_name]",
+                            "trim_whitespace": 1
+                        }
+                    },
+                    "voice_count": {
+                        "id": "voice_count",
+                        "table": "entity_forum_topic",
+                        "field": "voice_count",
+                        "label": "Voices",
+                        "separator": ""
+                    },
+                    "reply_count": {
+                        "id": "reply_count",
+                        "table": "entity_forum_topic",
+                        "field": "reply_count",
+                        "label": "Replies",
+                        "separator": ""
+                    },
+                    "last_active_time": {
+                        "id": "last_active_time",
+                        "table": "entity_forum_topic",
+                        "field": "last_active_time",
+                        "label": "Last post",
+                        "date_format": "time ago"
+                    },
+                    "author_avatar_1": {
+                        "id": "author_avatar_1",
+                        "table": "entity_forum_reply",
+                        "field": "author_avatar",
+                        "relationship": "last_reply_id",
+                        "label": "",
+                        "exclude": true,
+                        "image_style": "entity_forum_avatar_small"
+                    },
+                    "author_name_1": {
+                        "id": "author_name_1",
+                        "table": "entity_forum_reply",
+                        "field": "author_name",
+                        "relationship": "last_reply_id",
+                        "label": "",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "by [author_avatar_1] [author_name_1]",
+                            "trim_whitespace": 1
+                        },
+                        "empty": "by [author_name]",
+                        "hide_alter_empty": true
+                    }
+                },
+                "sorts": {
+                    "sticky": {
+                        "id": "sticky",
+                        "table": "entity_forum_topic",
+                        "field": "sticky",
+                        "order": "DESC"
+                    },
+                    "last_active_time": {
+                        "id": "last_active_time",
+                        "table": "entity_forum_topic",
+                        "field": "last_active_time",
+                        "order": "DESC"
+                    }
+                },
+                "filters": {
+                    "status": {
+                        "id": "status",
+                        "table": "entity_forum_topic",
+                        "field": "status",
+                        "operator": "=",
+                        "value": {
+                            "value": "1"
+                        }
+                    }
+                },
+                "arguments": {
+                    "forum_id": {
+                        "id": "forum_id",
+                        "table": "entity_forum_topic",
+                        "field": "forum_id",
+                        "default_action": "empty",
+                        "summary": {
+                            "format": "default_summary"
+                        }
+                    }
+                },
+                "empty": {
+                    "area_text_custom": {
+                        "id": "area_text_custom",
+                        "table": "views",
+                        "field": "area_text_custom",
+                        "empty": true,
+                        "content": "No topics in this forum yet."
+                    }
+                }
+            }
+        }
+    }
+}

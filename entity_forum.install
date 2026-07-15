@@ -1,0 +1,558 @@
+<?php
+
+/**
+ * @file
+ * Install, update, and uninstall functions for the Entity Forum module.
+ */
+
+/**
+ * Implements hook_requirements().
+ *
+ * Entity Forum provides the forums, forum/* and topic/* paths and replaces the
+ * core-style forum modules. Installing it alongside 'forum' or 'forum_ng'
+ * would leave the site with two competing forum systems fighting over the
+ * same URLs, so installation is blocked while either is enabled, and the
+ * status report warns if a conflict (or a leftover path override such as a
+ * stale forum_ng view) appears later.
+ *
+ * @param string $phase
+ *   The phase in which requirements are checked: 'install' or 'runtime'.
+ *
+ * @return array
+ *   Requirements array as expected by the hook.
+ */
+function entity_forum_requirements($phase) {
+  $requirements = array();
+
+  $conflicting = array();
+  foreach (array('forum', 'forum_ng') as $module) {
+    if (module_exists($module)) {
+      $conflicting[] = $module;
+    }
+  }
+
+  if ($phase == 'install' && $conflicting) {
+    $requirements['entity_forum_conflict'] = array(
+      'title' => t('Entity Forum'),
+      'description' => t('Entity Forum cannot be installed while the following conflicting forum module(s) are enabled: %modules. They provide overlapping forum pages and URLs. Disable them before installing Entity Forum — they cannot be active at the same time.', array(
+        '%modules' => implode(', ', $conflicting),
+      )),
+      'severity' => REQUIREMENT_ERROR,
+    );
+  }
+
+  if ($phase == 'runtime') {
+    if ($conflicting) {
+      $requirements['entity_forum_conflict'] = array(
+        'title' => t('Entity Forum conflicting modules'),
+        'value' => t('Enabled: %modules', array('%modules' => implode(', ', $conflicting))),
+        'description' => t('Entity Forum and the %modules module(s) cannot be active at the same time: they provide overlapping forum pages and URLs. Disable one of them.', array(
+          '%modules' => implode(', ', $conflicting),
+        )),
+        'severity' => REQUIREMENT_ERROR,
+      );
+    }
+    else {
+      $requirements['entity_forum_conflict'] = array(
+        'title' => t('Entity Forum conflicting modules'),
+        'value' => t('None enabled'),
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+
+    // Even with conflicting modules disabled, a leftover Views page (e.g.
+    // the forum_ng view kept in active config) can still override the
+    // forums path. Verify Entity Forum actually owns its front page.
+    $owner = db_query("SELECT page_callback FROM {menu_router} WHERE path = 'forums'")->fetchField();
+    if ($owner && $owner !== 'entity_forum_forums_page') {
+      $requirements['entity_forum_path'] = array(
+        'title' => t('Entity Forum front page'),
+        'value' => t('Overridden'),
+        'description' => t('The <a href="@url">forums</a> path is currently served by %callback instead of Entity Forum. A leftover view (such as the forum_ng view) or another module is overriding it. Disable that view at admin/structure/views and clear caches.', array(
+          '@url' => url('forums'),
+          '%callback' => $owner,
+        )),
+        'severity' => REQUIREMENT_WARNING,
+      );
+    }
+    else {
+      $requirements['entity_forum_path'] = array(
+        'title' => t('Entity Forum front page'),
+        'value' => t('Served by Entity Forum'),
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+
+    // Privacy recommendation: when forum members can upload images through
+    // the editor, the core image library dialog lets them browse EVERY
+    // image on the site. The image_library_image_access contrib module
+    // limits users to their own uploads (plus a bypass permission).
+    $upload_formats = array();
+    foreach (filter_formats() as $format) {
+      $format_config = config('filter.format.' . $format->format);
+      if ($format_config->get('editor') && $format_config->get('editor_settings.image_upload.status')) {
+        $upload_formats[] = $format->name;
+      }
+    }
+    if ($upload_formats && !module_exists('image_library_image_access')) {
+      $requirements['entity_forum_image_library'] = array(
+        'title' => t('Entity Forum image library privacy'),
+        'value' => t('Module recommended'),
+        'description' => t('The %formats text format(s) allow image uploads via the editor, and the core image library dialog shows every uploaded image on the site to anyone who can browse it. Installing the <a href="@url">Image Library Image Access</a> module is recommended: it limits users to seeing only their own uploads.', array(
+          '%formats' => implode(', ', $upload_formats),
+          '@url' => 'https://backdropcms.org/project/image_library_image_access',
+        )),
+        'severity' => REQUIREMENT_WARNING,
+      );
+    }
+    elseif ($upload_formats) {
+      $requirements['entity_forum_image_library'] = array(
+        'title' => t('Entity Forum image library privacy'),
+        'value' => t('Image Library Image Access enabled'),
+        'severity' => REQUIREMENT_OK,
+      );
+    }
+  }
+
+  return $requirements;
+}
+
+/**
+ * Implements hook_schema().
+ */
+function entity_forum_schema() {
+  $schema['entity_forum_forum'] = array(
+    'description' => 'Stores forum containers.',
+    'fields' => array(
+      'forum_id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'Primary Key: Unique forum ID.',
+      ),
+      'title' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'description' => 'The title of the forum.',
+      ),
+      'description' => array(
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+        'description' => 'Plain-text description of the forum.',
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Published status (1 = published, 0 = unpublished).',
+      ),
+      'parent_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'The parent forum ID for nested forums (0 = top level).',
+      ),
+      'visibility' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'public',
+        'description' => 'Visibility of the forum: public or private.',
+      ),
+      'weight' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Sort order of the forum in listings (lower first).',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the forum was created.',
+      ),
+      'changed' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the forum was last updated.',
+      ),
+      'author_uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid of the forum author. Kept as the "last uid" even after the account is deleted, for reinstatement.',
+      ),
+      'author_name' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
+      ),
+    ),
+    'primary key' => array('forum_id'),
+    'indexes' => array(
+      'status' => array('status'),
+      'parent_id' => array('parent_id'),
+      'author_uid' => array('author_uid'),
+    ),
+  );
+
+  $schema['entity_forum_topic'] = array(
+    'description' => 'Stores forum topics (discussion threads).',
+    'fields' => array(
+      'topic_id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'Primary Key: Unique topic ID.',
+      ),
+      'title' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'description' => 'The title of the topic.',
+      ),
+      'content' => array(
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+        'description' => 'Body of the opening post.',
+      ),
+      'format' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'Text format machine name for the content.',
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Published status (1 = published, 0 = unpublished).',
+      ),
+      'forum_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The {entity_forum_forum}.forum_id this topic belongs to.',
+      ),
+      'author_uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid of the topic author. Kept as the "last uid" even after the account is deleted, for reinstatement.',
+      ),
+      'author_name' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the topic was created.',
+      ),
+      'changed' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the topic was last updated.',
+      ),
+      'sticky' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Sticky topics sort first in the forum topic list.',
+      ),
+      'closed' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Closed topics accept no new replies.',
+      ),
+      'reply_count' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Denormalized count of published replies.',
+      ),
+      'last_reply_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Denormalized {entity_forum_reply}.reply_id of the newest published reply.',
+      ),
+      'last_active_time' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Denormalized Unix timestamp of the latest activity.',
+      ),
+      'voice_count' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 1,
+        'description' => 'Denormalized count of distinct participants (topic author plus published repliers) — the bbPress "Voices".',
+      ),
+      'attachment_count' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Denormalized count of {file_usage} attachments on the topic and its published replies.',
+      ),
+    ),
+    'primary key' => array('topic_id'),
+    'indexes' => array(
+      'status' => array('status'),
+      'forum_id' => array('forum_id'),
+      'author_uid' => array('author_uid'),
+      'forum_listing' => array('forum_id', 'status', 'sticky', 'last_active_time'),
+    ),
+  );
+
+  $schema['entity_forum_reply'] = array(
+    'description' => 'Stores replies to forum topics.',
+    'fields' => array(
+      'reply_id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'Primary Key: Unique reply ID.',
+      ),
+      'content' => array(
+        'type' => 'text',
+        'size' => 'medium',
+        'not null' => FALSE,
+        'description' => 'Body of the reply.',
+      ),
+      'format' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'Text format machine name for the content.',
+      ),
+      'status' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 1,
+        'description' => 'Published status (1 = published, 0 = unpublished).',
+      ),
+      'topic_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The {entity_forum_topic}.topic_id this reply belongs to.',
+      ),
+      'forum_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The {entity_forum_forum}.forum_id, denormalized for querying.',
+      ),
+      'author_uid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'The {users}.uid of the reply author. Kept as the "last uid" even after the account is deleted, for reinstatement.',
+      ),
+      'author_name' => array(
+        'type' => 'varchar',
+        'length' => 60,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
+      ),
+      'created' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the reply was created.',
+      ),
+      'changed' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp when the reply was last updated.',
+      ),
+      'reply_to_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Parent {entity_forum_reply}.reply_id when threaded (0 = direct reply to topic).',
+      ),
+    ),
+    'primary key' => array('reply_id'),
+    'indexes' => array(
+      'status' => array('status'),
+      'topic_id' => array('topic_id'),
+      'forum_id' => array('forum_id'),
+      'author_uid' => array('author_uid'),
+      'reply_to_id' => array('reply_to_id'),
+      'topic_listing' => array('topic_id', 'status', 'created'),
+    ),
+  );
+
+  $schema['entity_forum_migrate_map'] = array(
+    'description' => 'Maps legacy WordPress bbPress post IDs to Entity Forum entity IDs, making imports idempotent.',
+    'fields' => array(
+      'entity_type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'The Entity Forum entity type the row maps to.',
+      ),
+      'wp_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The legacy {wp_posts}.ID.',
+      ),
+      'backdrop_id' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'description' => 'The imported entity ID.',
+      ),
+      'migrated' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp of the import.',
+      ),
+    ),
+    'primary key' => array('entity_type', 'wp_id'),
+    'indexes' => array(
+      'backdrop_id' => array('entity_type', 'backdrop_id'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Add the author_name snapshot column and make author_uid signed.
+ *
+ * author_uid becomes signed so a deleted member's posts can keep their
+ * "last uid" flipped to negative (-uid), making former-member posts
+ * trivially queryable (author_uid < 0) and reinstatable via abs(uid).
+ */
+function entity_forum_update_1000() {
+  $name_spec = array(
+    'type' => 'varchar',
+    'length' => 60,
+    'not null' => TRUE,
+    'default' => '',
+    'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
+  );
+  $uid_spec = array(
+    'type' => 'int',
+    'not null' => TRUE,
+    'default' => 0,
+    'description' => 'The {users}.uid of the author. Flipped to negative ("last uid") when the account is deleted.',
+  );
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $table) {
+    if (!db_field_exists($table, 'author_name')) {
+      db_add_field($table, 'author_name', $name_spec);
+    }
+    db_change_field($table, 'author_uid', 'author_uid', $uid_spec);
+  }
+}
+
+/**
+ * Adds voice_count and attachment_count to {entity_forum_topic} and
+ * populates them for existing topics.
+ */
+function entity_forum_update_1001(&$sandbox) {
+  if (!isset($sandbox['progress'])) {
+    if (!db_field_exists('entity_forum_topic', 'voice_count')) {
+      db_add_field('entity_forum_topic', 'voice_count', array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 1,
+        'description' => 'Denormalized count of distinct participants (topic author plus published repliers) — the bbPress "Voices".',
+      ));
+    }
+    if (!db_field_exists('entity_forum_topic', 'attachment_count')) {
+      db_add_field('entity_forum_topic', 'attachment_count', array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => 'Denormalized count of {file_usage} attachments on the topic and its published replies.',
+      ));
+    }
+    // Rebuild the schema cache so the stats recalculation (and any entity
+    // save via backdrop_write_record) sees the new columns immediately.
+    backdrop_get_complete_schema(TRUE);
+    $sandbox['progress'] = 0;
+    $sandbox['max'] = (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic}')->fetchField();
+  }
+
+  $topic_ids = db_query_range('SELECT topic_id FROM {entity_forum_topic} ORDER BY topic_id', $sandbox['progress'], 100)->fetchCol();
+  foreach ($topic_ids as $topic_id) {
+    entity_forum_topic_recalculate_stats($topic_id);
+    $sandbox['progress']++;
+  }
+
+  $sandbox['#finished'] = $sandbox['max'] ? min(1, $sandbox['progress'] / $sandbox['max']) : 1;
+  if ($sandbox['#finished'] >= 1) {
+    return t('Added voice and attachment counts; recalculated stats for @count topics.', array('@count' => $sandbox['progress']));
+  }
+}
+
+/**
+ * Moves private-forum attachment files into the private:// scheme.
+ *
+ * Secures existing imported attachments: any file whose forum is private
+ * is moved from public:// to private:// so entity_forum_file_download()
+ * can gate it. Public-forum files are left in public://. Requires the
+ * private file system path to be configured first.
+ */
+function entity_forum_update_1002(&$sandbox) {
+  if (!file_stream_wrapper_valid_scheme('private')) {
+    throw new UpdateException('The private file system path is not configured. Set it at admin/config/media/file-system, then run updates again.');
+  }
+
+  if (!isset($sandbox['progress'])) {
+    $sandbox['fids'] = db_query("SELECT DISTINCT fid FROM {file_usage} WHERE module = 'entity_forum' ORDER BY fid")->fetchCol();
+    $sandbox['progress'] = 0;
+    $sandbox['moved'] = 0;
+    $sandbox['max'] = count($sandbox['fids']);
+  }
+
+  $slice = array_slice($sandbox['fids'], $sandbox['progress'], 50);
+  foreach ($slice as $fid) {
+    $file = file_load($fid);
+    if ($file && entity_forum_rescheme_file($file)) {
+      $sandbox['moved']++;
+    }
+    $sandbox['progress']++;
+  }
+
+  $sandbox['#finished'] = $sandbox['max'] ? min(1, $sandbox['progress'] / $sandbox['max']) : 1;
+  if ($sandbox['#finished'] >= 1) {
+    return t('Secured attachments: moved @moved private-forum file(s) to private://, checked @total.', array(
+      '@moved' => $sandbox['moved'],
+      '@total' => $sandbox['max'],
+    ));
+  }
+}

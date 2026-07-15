@@ -1,0 +1,1687 @@
+<?php
+
+/**
+ * @file
+ * Entity Forum: a bbPress-style forum built on custom entities.
+ *
+ * Provides three entity types managed by EntityPlusController:
+ * - entity_forum_forum: forum containers (nestable, public or private).
+ * - entity_forum_topic: discussion threads within a forum.
+ * - entity_forum_reply: replies to a topic (optionally threaded).
+ *
+ * Frontend pages live in entity_forum.pages.inc, admin UI in entity_forum.admin.inc,
+ * entity classes in includes/entity_forum.entity.inc.
+ */
+
+/**
+ * Implements hook_entity_info().
+ */
+function entity_forum_entity_info() {
+  $info = array();
+
+  $info['entity_forum_forum'] = array(
+    'label' => t('Entity Forum'),
+    'plural label' => t('Entity Forums'),
+    'description' => t('A forum container holding discussion topics.'),
+    'entity class' => 'EntityForumForum',
+    'controller class' => 'EntityPlusController',
+    'module' => 'entity_forum',
+    'base table' => 'entity_forum_forum',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'forum_id',
+      'label' => 'title',
+    ),
+    'bundles' => array(
+      'entity_forum_forum' => array(
+        'label' => t('Entity Forum'),
+        'admin' => array(
+          'path' => 'admin/structure/entity-forum/forum',
+          'access arguments' => array('administer entity forum'),
+        ),
+      ),
+    ),
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Full'),
+        'custom settings' => FALSE,
+      ),
+    ),
+    'uri callback' => 'entity_forum_forum_uri',
+    'access callback' => 'entity_forum_forum_access',
+  );
+
+  $info['entity_forum_topic'] = array(
+    'label' => t('Entity Forum Topic'),
+    'plural label' => t('Entity Forum Topics'),
+    'description' => t('A discussion thread within a forum.'),
+    'entity class' => 'EntityForumTopic',
+    'controller class' => 'EntityPlusController',
+    'module' => 'entity_forum',
+    'base table' => 'entity_forum_topic',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'topic_id',
+      'label' => 'title',
+    ),
+    'bundles' => array(
+      'entity_forum_topic' => array(
+        'label' => t('Entity Forum Topic'),
+        'admin' => array(
+          'path' => 'admin/structure/entity-forum/topic',
+          'access arguments' => array('administer entity forum'),
+        ),
+      ),
+    ),
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Full'),
+        'custom settings' => FALSE,
+      ),
+    ),
+    'uri callback' => 'entity_forum_topic_uri',
+    'access callback' => 'entity_forum_topic_access',
+  );
+
+  $info['entity_forum_reply'] = array(
+    'label' => t('Entity Forum Reply'),
+    'plural label' => t('Entity Forum Replies'),
+    'description' => t('A reply to a forum topic.'),
+    'entity class' => 'EntityForumReply',
+    'controller class' => 'EntityPlusController',
+    'module' => 'entity_forum',
+    'base table' => 'entity_forum_reply',
+    'fieldable' => TRUE,
+    'entity keys' => array(
+      'id' => 'reply_id',
+    ),
+    'bundles' => array(
+      'entity_forum_reply' => array(
+        'label' => t('Entity Forum Reply'),
+        'admin' => array(
+          'path' => 'admin/structure/entity-forum/reply',
+          'access arguments' => array('administer entity forum'),
+        ),
+      ),
+    ),
+    'view modes' => array(
+      'full' => array(
+        'label' => t('Full'),
+        'custom settings' => FALSE,
+      ),
+    ),
+    'uri callback' => 'entity_forum_reply_uri',
+    'access callback' => 'entity_forum_reply_access',
+  );
+
+  return $info;
+}
+
+/**
+ * Implements hook_autoload_info().
+ */
+function entity_forum_autoload_info() {
+  return array(
+    'EntityForumForum' => 'includes/entity_forum.entity.inc',
+    'EntityForumTopic' => 'includes/entity_forum.entity.inc',
+    'EntityForumReply' => 'includes/entity_forum.entity.inc',
+    'entity_forum_handler_field_avatar' => 'views/entity_forum_handler_field_avatar.inc',
+    'entity_forum_handler_field_forum_count' => 'views/entity_forum_handler_field_forum_count.inc',
+  );
+}
+
+/**
+ * Implements hook_views_data_alter().
+ *
+ * Adds an "Author picture" field to topics and replies, rendering the
+ * author's forum picture (see entity_forum_format_avatar()) from the
+ * row's author_uid. A custom handler because the picture is module-owned
+ * account data, not a user field Views could reach via a relationship.
+ */
+function entity_forum_views_data_alter(&$data) {
+  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
+    if (isset($data[$table])) {
+      $data[$table]['author_avatar'] = array(
+        'title' => t('Author picture'),
+        'help' => t("The author's forum picture, rendered with an image style."),
+        'field' => array(
+          'handler' => 'entity_forum_handler_field_avatar',
+          'real field' => 'author_uid',
+          'click sortable' => FALSE,
+        ),
+      );
+    }
+  }
+
+  // Aggregate count fields on the forum base table, so a forums-list View
+  // can show per-forum totals (rolled up to include sub-forums) without
+  // any per-row count queries — they all read the cached counts map from
+  // entity_forum_forum_counts(). See entity_forum_handler_field_forum_count.
+  if (isset($data['entity_forum_forum'])) {
+    $data['entity_forum_forum']['topic_count'] = array(
+      'title' => t('Topic count'),
+      'help' => t('Published topics in this forum and its sub-forums.'),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_count',
+        'real field' => 'forum_id',
+        'count key' => 'topic_count',
+        'click sortable' => FALSE,
+      ),
+    );
+    $data['entity_forum_forum']['post_count'] = array(
+      'title' => t('Post count'),
+      'help' => t('Topics plus published replies in this forum and its sub-forums (bbPress "Posts").'),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_count',
+        'real field' => 'forum_id',
+        'count key' => 'post_count',
+        'click sortable' => FALSE,
+      ),
+    );
+    $data['entity_forum_forum']['reply_count'] = array(
+      'title' => t('Reply count'),
+      'help' => t('Published replies in this forum and its sub-forums.'),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_count',
+        'real field' => 'forum_id',
+        'count key' => 'reply_count',
+        'click sortable' => FALSE,
+      ),
+    );
+    $data['entity_forum_forum']['forum_last_active'] = array(
+      'title' => t('Last activity'),
+      'help' => t('Newest activity time in this forum or its sub-forums.'),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_count',
+        'real field' => 'forum_id',
+        'count key' => 'last_active_time',
+        'is date' => TRUE,
+        'click sortable' => FALSE,
+      ),
+    );
+  }
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function entity_forum_config_info() {
+  return array(
+    'entity_forum.settings' => array(
+      'label' => t('Entity Forum settings'),
+      'group' => t('Configuration'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_permission().
+ */
+function entity_forum_permission() {
+  return array(
+    'administer entity forum' => array(
+      'title' => t('Administer Entity Forum'),
+      'description' => t('Create, edit, and delete forums.'),
+    ),
+    'view private entity forum' => array(
+      'title' => t('View private Entity Forums'),
+      'description' => t('View forums marked as private, and their topics.'),
+    ),
+    'create entity forum topic' => array(
+      'title' => t('Create Entity Forum topics'),
+      'description' => t('Post new topics, and edit or delete the user\'s own topics.'),
+    ),
+    'administer entity forum topic' => array(
+      'title' => t('Administer Entity Forum topics'),
+      'description' => t('Edit and delete <em>any</em> topic (moderator). Not needed to edit one\'s own topics.'),
+    ),
+    'create entity forum reply' => array(
+      'title' => t('Create Entity Forum replies'),
+      'description' => t('Post replies, and edit or delete the user\'s own replies.'),
+    ),
+    'administer entity forum reply' => array(
+      'title' => t('Administer Entity Forum replies'),
+      'description' => t('Edit and delete <em>any</em> reply (moderator). Not needed to edit one\'s own replies.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_menu().
+ */
+function entity_forum_menu() {
+  $items = array();
+
+  // Frontend.
+  $items['forums'] = array(
+    'title' => 'Forums',
+    'page callback' => 'entity_forum_forums_page',
+    'access arguments' => array('access content'),
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['forum/%entity_forum_forum'] = array(
+    'title callback' => 'entity_label',
+    'title arguments' => array('entity_forum_forum', 1),
+    'page callback' => 'entity_forum_forum_page',
+    'page arguments' => array(1),
+    'access callback' => 'entity_forum_forum_access',
+    'access arguments' => array('view', 1),
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['forum/%entity_forum_forum/new-topic'] = array(
+    'title' => 'New topic',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_topic_frontend_form', 1),
+    'access callback' => 'entity_forum_topic_create_access',
+    'access arguments' => array(1),
+    'file' => 'entity_forum.pages.inc',
+  );
+  $items['topic/%entity_forum_topic'] = array(
+    'title callback' => 'entity_label',
+    'title arguments' => array('entity_forum_topic', 1),
+    'page callback' => 'entity_forum_topic_page',
+    'page arguments' => array(1),
+    'access callback' => 'entity_forum_topic_view_access',
+    'access arguments' => array(1),
+    'file' => 'entity_forum.pages.inc',
+  );
+
+  // Account page: the member's forum tab (posting name + their posts).
+  $items['user/%user/forum-posts'] = array(
+    'title' => 'Forum',
+    'page callback' => 'entity_forum_user_posts_page',
+    'page arguments' => array(1),
+    'access callback' => 'entity_forum_user_posts_access',
+    'access arguments' => array(1),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'entity_forum.pages.inc',
+  );
+
+  // Admin UI: a "Forums" tab on admin/content.
+  $items['admin/content/entity-forum'] = array(
+    'title' => 'Forums',
+    'page callback' => 'entity_forum_admin_forums',
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/forums'] = array(
+    'title' => 'Forums',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -10,
+  );
+  $items['admin/content/entity-forum/topics'] = array(
+    'title' => 'Topics',
+    'page callback' => 'entity_forum_admin_topics',
+    'access arguments' => array('administer entity forum topic'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/replies'] = array(
+    'title' => 'Replies',
+    'page callback' => 'entity_forum_admin_replies',
+    'access arguments' => array('administer entity forum reply'),
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/settings'] = array(
+    'title' => 'Settings',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_settings_form'),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 10,
+    'file' => 'entity_forum.admin.inc',
+  );
+
+  // Structure UI: the entity types are fieldable — these bundle admin
+  // pages give Field UI somewhere to attach its "Manage fields" and
+  // "Manage display" tabs, so sites can add fields (e.g. attachments)
+  // through the normal Backdrop UI.
+  $items['admin/structure/entity-forum'] = array(
+    'title' => 'Forums',
+    'description' => 'Manage fields and display for forums, topics and replies.',
+    'page callback' => 'entity_forum_structure_page',
+    'access arguments' => array('administer entity forum'),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $bundle_pages = array(
+    'forum' => array('entity_forum_forum', 'Forum'),
+    'topic' => array('entity_forum_topic', 'Topic'),
+    'reply' => array('entity_forum_reply', 'Reply'),
+  );
+  foreach ($bundle_pages as $path_part => $bundle_info) {
+    $items['admin/structure/entity-forum/' . $path_part] = array(
+      'title' => $bundle_info[1],
+      'page callback' => 'entity_forum_structure_bundle_page',
+      'page arguments' => array($bundle_info[0]),
+      'access arguments' => array('administer entity forum'),
+      'file' => 'entity_forum.admin.inc',
+    );
+  }
+  $items['admin/content/entity-forum/forums/add'] = array(
+    'title' => 'Add forum',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_forum_form'),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_LOCAL_ACTION,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/topics/add'] = array(
+    'title' => 'Add topic',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_topic_form'),
+    'access arguments' => array('administer entity forum topic'),
+    'type' => MENU_LOCAL_ACTION,
+    'file' => 'entity_forum.admin.inc',
+  );
+
+  // Entity edit/delete forms. Access checks allow both administrators and
+  // (for topics/replies) the original author.
+  $items['admin/content/entity-forum/forum/%entity_forum_forum/edit'] = array(
+    'title' => 'Edit forum',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_forum_form', 4),
+    'access callback' => 'entity_forum_forum_access',
+    'access arguments' => array('update', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/forum/%entity_forum_forum/delete'] = array(
+    'title' => 'Delete forum',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_forum_delete_form', 4),
+    'access callback' => 'entity_forum_forum_access',
+    'access arguments' => array('delete', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/topic/%entity_forum_topic/edit'] = array(
+    'title' => 'Edit topic',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_topic_form', 4),
+    'access callback' => 'entity_forum_topic_access',
+    'access arguments' => array('update', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/topic/%entity_forum_topic/delete'] = array(
+    'title' => 'Delete topic',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_topic_delete_form', 4),
+    'access callback' => 'entity_forum_topic_access',
+    'access arguments' => array('delete', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/reply/%entity_forum_reply/edit'] = array(
+    'title' => 'Edit reply',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_reply_form', 4),
+    'access callback' => 'entity_forum_reply_access',
+    'access arguments' => array('update', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/reply/%entity_forum_reply/delete'] = array(
+    'title' => 'Delete reply',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_reply_delete_form', 4),
+    'access callback' => 'entity_forum_reply_access',
+    'access arguments' => array('delete', 4),
+    'file' => 'entity_forum.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Menu wildcard loader for %entity_forum_forum.
+ *
+ * @param int $forum_id
+ *   The forum ID from the URL.
+ *
+ * @return EntityForumForum|false
+ *   The forum entity, or FALSE to trigger a 404.
+ */
+function entity_forum_forum_load($forum_id) {
+  $forum = entity_load('entity_forum_forum', $forum_id);
+  return $forum ? $forum : FALSE;
+}
+
+/**
+ * Menu wildcard loader for %entity_forum_topic.
+ *
+ * @param int $topic_id
+ *   The topic ID from the URL.
+ *
+ * @return EntityForumTopic|false
+ *   The topic entity, or FALSE to trigger a 404.
+ */
+function entity_forum_topic_load($topic_id) {
+  $topic = entity_load('entity_forum_topic', $topic_id);
+  return $topic ? $topic : FALSE;
+}
+
+/**
+ * Menu wildcard loader for %entity_forum_reply.
+ *
+ * @param int $reply_id
+ *   The reply ID from the URL.
+ *
+ * @return EntityForumReply|false
+ *   The reply entity, or FALSE to trigger a 404.
+ */
+function entity_forum_reply_load($reply_id) {
+  $reply = entity_load('entity_forum_reply', $reply_id);
+  return $reply ? $reply : FALSE;
+}
+
+/**
+ * Entity URI callback for forums.
+ *
+ * @param EntityForumForum $forum
+ *   The forum entity.
+ *
+ * @return array
+ *   URI array as expected by entity_uri().
+ */
+function entity_forum_forum_uri($forum) {
+  return $forum->uri();
+}
+
+/**
+ * Entity URI callback for topics.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic entity.
+ *
+ * @return array
+ *   URI array as expected by entity_uri().
+ */
+function entity_forum_topic_uri($topic) {
+  return $topic->uri();
+}
+
+/**
+ * Entity URI callback for replies.
+ *
+ * @param EntityForumReply $reply
+ *   The reply entity.
+ *
+ * @return array
+ *   URI array as expected by entity_uri().
+ */
+function entity_forum_reply_uri($reply) {
+  return $reply->uri();
+}
+
+/**
+ * Access callback for forum entities.
+ *
+ * Signature follows entity_plus_access(): ($op, $entity, $account, $type).
+ *
+ * @param string $op
+ *   One of 'create', 'view', 'update', 'delete'.
+ * @param EntityForumForum|null $forum
+ *   The forum, or NULL for the 'create' operation.
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_forum_access($op, $forum = NULL, $account = NULL, $entity_type = NULL) {
+  switch ($op) {
+    case 'view':
+      if ($forum && $forum->visibility === 'private') {
+        return user_access('view private entity forum', $account) || user_access('administer entity forum', $account);
+      }
+      return TRUE;
+
+    case 'create':
+    case 'update':
+    case 'delete':
+      return user_access('administer entity forum', $account);
+  }
+  return FALSE;
+}
+
+/**
+ * Returns the forum_id a topic or reply belongs to.
+ *
+ * @param string $type
+ *   entity_forum_topic or entity_forum_reply.
+ * @param int $id
+ *   The entity ID.
+ *
+ * @return int
+ *   The owning forum_id, or 0.
+ */
+function entity_forum_post_forum_id($type, $id) {
+  if ($type === 'entity_forum_topic') {
+    return (int) db_query('SELECT forum_id FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $id))->fetchField();
+  }
+  if ($type === 'entity_forum_reply') {
+    return (int) db_query('SELECT forum_id FROM {entity_forum_reply} WHERE reply_id = :id', array(':id' => $id))->fetchField();
+  }
+  return 0;
+}
+
+/**
+ * Returns the distinct forum IDs a managed file is attached to.
+ *
+ * Uses {file_usage} rows registered by this module (module 'entity_forum')
+ * to resolve the topic/reply the file belongs to, then its forum.
+ *
+ * @param int $fid
+ *   The managed file ID.
+ *
+ * @return array
+ *   Forum IDs the file is used in (empty if the file is not a forum
+ *   attachment).
+ */
+function entity_forum_file_forums($fid) {
+  $forums = array();
+  $usages = db_query("SELECT type, id FROM {file_usage} WHERE fid = :fid AND module = 'entity_forum'", array(':fid' => $fid))->fetchAll();
+  foreach ($usages as $u) {
+    $forum_id = entity_forum_post_forum_id($u->type, $u->id);
+    if ($forum_id) {
+      $forums[$forum_id] = $forum_id;
+    }
+  }
+  return array_values($forums);
+}
+
+/**
+ * Whether a forum attachment must live in the private:// scheme.
+ *
+ * A file is private when ANY forum it is attached to is private — the
+ * most restrictive using forum wins.
+ *
+ * @param int $fid
+ *   The managed file ID.
+ *
+ * @return bool
+ *   TRUE if the file should be stored privately.
+ */
+function entity_forum_file_should_be_private($fid) {
+  foreach (entity_forum_file_forums($fid) as $forum_id) {
+    if (db_query('SELECT visibility FROM {entity_forum_forum} WHERE forum_id = :id', array(':id' => $forum_id))->fetchField() === 'private') {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Implements hook_file_download().
+ *
+ * Access control for forum attachments stored privately: a private:// file
+ * used by a forum post is served only when the current user may view at
+ * least one of the forums it belongs to (public forums are viewable by
+ * everyone; private forums require 'view private entity forum'). Files this
+ * module does not manage are ignored (return NULL). Public:// attachments
+ * never reach this hook — they are served directly by the web server.
+ *
+ * @param string $uri
+ *   The URI of the file being downloaded.
+ *
+ * @return array|int|null
+ *   Content headers to grant access, -1 to deny, or NULL to abstain.
+ */
+function entity_forum_file_download($uri) {
+  $fid = db_query('SELECT fid FROM {file_managed} WHERE uri = :uri', array(':uri' => $uri))->fetchField();
+  if (!$fid) {
+    return NULL;
+  }
+  $forums = entity_forum_file_forums($fid);
+  if (!$forums) {
+    // Not a forum attachment — let other modules decide.
+    return NULL;
+  }
+  foreach ($forums as $forum_id) {
+    $forum = entity_forum_forum_load($forum_id);
+    if ($forum && entity_forum_forum_access('view', $forum)) {
+      return file_get_content_headers(file_load($fid));
+    }
+  }
+  return -1;
+}
+
+/**
+ * Moves a forum attachment into the storage scheme its forum requires.
+ *
+ * Private-forum attachments belong in private:// (gated by
+ * entity_forum_file_download()); everything else stays public://. The file
+ * keeps its path within the scheme, and stale image derivatives at the old
+ * location are flushed. Safe and idempotent — a no-op when already correct.
+ *
+ * @param object $file
+ *   A managed file object.
+ *
+ * @return bool
+ *   TRUE if the file was moved.
+ */
+function entity_forum_rescheme_file($file) {
+  $target_scheme = entity_forum_file_should_be_private($file->fid) ? 'private' : 'public';
+  if (file_uri_scheme($file->uri) === $target_scheme) {
+    return FALSE;
+  }
+  // A private scheme must be configured before anything can be secured.
+  if ($target_scheme === 'private' && !file_stream_wrapper_valid_scheme('private')) {
+    return FALSE;
+  }
+  $old_uri = $file->uri;
+  $destination = $target_scheme . '://' . file_uri_target($old_uri);
+  $dir = backdrop_dirname($destination);
+  if (!file_prepare_directory($dir, FILE_CREATE_DIRECTORY)) {
+    return FALSE;
+  }
+  if (file_move($file, $destination, FILE_EXISTS_REPLACE)) {
+    image_path_flush($old_uri);
+    return TRUE;
+  }
+  return FALSE;
+}
+
+/**
+ * Re-schemes every attachment file used by a forum's posts.
+ *
+ * Called when a forum's visibility changes so its posts' files move into
+ * (or out of) private:// to match. Returns the number of files moved.
+ *
+ * @param int $forum_id
+ *   The forum whose attachment files should be re-checked.
+ *
+ * @return int
+ *   Count of files moved.
+ */
+function entity_forum_rescheme_forum_files($forum_id) {
+  $fids = db_query("SELECT DISTINCT u.fid
+    FROM {file_usage} u
+    LEFT JOIN {entity_forum_topic} t ON u.type = 'entity_forum_topic' AND t.topic_id = u.id
+    LEFT JOIN {entity_forum_reply} r ON u.type = 'entity_forum_reply' AND r.reply_id = u.id
+    WHERE u.module = 'entity_forum' AND COALESCE(t.forum_id, r.forum_id) = :forum_id", array(':forum_id' => $forum_id))->fetchCol();
+  $moved = 0;
+  foreach ($fids as $fid) {
+    $file = file_load($fid);
+    if ($file && entity_forum_rescheme_file($file)) {
+      $moved++;
+    }
+  }
+  return $moved;
+}
+
+/**
+ * Access callback for topic entities.
+ *
+ * @param string $op
+ *   One of 'create', 'view', 'update', 'delete'.
+ * @param EntityForumTopic|null $topic
+ *   The topic, or NULL for the 'create' operation.
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_topic_access($op, $topic = NULL, $account = NULL, $entity_type = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  switch ($op) {
+    case 'create':
+      return user_access('create entity forum topic', $account);
+
+    case 'view':
+      return TRUE;
+
+    case 'update':
+    case 'delete':
+      // The own-post check requires a logged-in account: uid 0 posts are
+      // orphans/imports, never editable by anonymous visitors.
+      return user_access('administer entity forum topic', $account)
+        || ($topic && $account->uid > 0 && $topic->author_uid == $account->uid && user_access('create entity forum topic', $account));
+  }
+  return FALSE;
+}
+
+/**
+ * Access callback for reply entities.
+ *
+ * @param string $op
+ *   One of 'create', 'view', 'update', 'delete'.
+ * @param EntityForumReply|null $reply
+ *   The reply, or NULL for the 'create' operation.
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_reply_access($op, $reply = NULL, $account = NULL, $entity_type = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  switch ($op) {
+    case 'create':
+      return user_access('create entity forum reply', $account);
+
+    case 'view':
+      return TRUE;
+
+    case 'update':
+    case 'delete':
+      // The own-post check requires a logged-in account: uid 0 posts are
+      // orphans/imports, never editable by anonymous visitors.
+      return user_access('administer entity forum reply', $account)
+        || ($reply && $account->uid > 0 && $reply->author_uid == $account->uid && user_access('create entity forum reply', $account));
+  }
+  return FALSE;
+}
+
+/**
+ * Menu access callback: can the user view a topic (via its forum)?
+ *
+ * Topic visibility is inherited from the parent forum, so private forums
+ * also hide their topics.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic being viewed.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_topic_view_access($topic) {
+  $forum = entity_load('entity_forum_forum', $topic->forum_id);
+  return $forum ? entity_forum_forum_access('view', $forum) : user_access('administer entity forum');
+}
+
+/**
+ * Menu access callback: can the user post a new topic in this forum?
+ *
+ * @param EntityForumForum $forum
+ *   The forum to post in.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_topic_create_access($forum) {
+  return $forum->status
+    && entity_forum_forum_access('view', $forum)
+    && user_access('create entity forum topic');
+}
+
+/**
+ * Implements hook_modules_enabled().
+ *
+ * Warns the administrator immediately when a conflicting forum module is
+ * enabled while Entity Forum is active. hook_requirements() blocks installing
+ * Entity Forum second; this covers the reverse order, which nothing can block.
+ */
+function entity_forum_modules_enabled($modules) {
+  $conflicting = array_intersect($modules, array('forum', 'forum_ng'));
+  if ($conflicting) {
+    backdrop_set_message(t('The %modules module(s) conflict with Entity Forum: both provide forum pages on the same URLs and cannot be active at the same time. Disable one of them. See the <a href="@status">status report</a>.', array(
+      '%modules' => implode(', ', $conflicting),
+      '@status' => url('admin/reports/status'),
+    )), 'warning');
+    watchdog('entity_forum', 'Conflicting forum module(s) enabled alongside Entity Forum: @modules.', array(
+      '@modules' => implode(', ', $conflicting),
+    ), WATCHDOG_WARNING);
+  }
+}
+
+/**
+ * Implements hook_user_predelete().
+ *
+ * Safety net: forum content must never be mass-deleted because a member's
+ * account is removed. Whatever path deletes the account (cancel form, bulk
+ * admin action, direct user_delete() API call), the member's posts are
+ * kept: the author_name snapshot is filled from the account being deleted,
+ * and author_uid is flipped to its negative — the "last uid". That makes
+ * former-member posts trivially queryable (author_uid < 0, e.g. in a
+ * View) and reinstatable to a new account via
+ * entity_forum_reassign_user_content(-$old_uid, $new_uid). Bylines render
+ * as "Name (no longer a member)". A future membership module can offer
+ * richer choices before this hook runs.
+ */
+function entity_forum_user_predelete($account) {
+  $name = entity_forum_user_display_name($account);
+  $total = 0;
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $table) {
+    // Fill the snapshot where a pre-snapshot row never got one.
+    db_update($table)
+      ->fields(array('author_name' => $name))
+      ->condition('author_uid', $account->uid)
+      ->condition('author_name', '')
+      ->execute();
+    // Flip to the negative "last uid".
+    $total += db_update($table)
+      ->fields(array('author_uid' => -(int) $account->uid))
+      ->condition('author_uid', $account->uid)
+      ->execute();
+    entity_get_controller($table)->resetCache();
+  }
+  if ($total) {
+    watchdog('entity_forum', 'Preserved @count forum item(s) by @name (deleted uid @uid): author_name snapshotted, author_uid flipped to -@uid.', array(
+      '@count' => $total,
+      '@name' => $name,
+      '@uid' => $account->uid,
+    ), WATCHDOG_NOTICE);
+  }
+
+  // Release and delete the member's forum picture, if any.
+  entity_forum_avatar_save($account, 0);
+}
+
+/**
+ * Returns the forum display name for a user account.
+ *
+ * The user's own forum posting name (a "handle" they can set on their
+ * account page) when set, otherwise the account name. Deliberately free
+ * of any site-specific fields so the module works on any site; importers
+ * that know a better name (e.g. a migrated WordPress display name) should
+ * seed the posting name instead.
+ *
+ * @param object $account
+ *   A user account.
+ *
+ * @return string
+ *   The display name.
+ */
+function entity_forum_user_display_name($account) {
+  if (!empty($account->data['entity_forum_posting_name'])) {
+    return $account->data['entity_forum_posting_name'];
+  }
+  return $account->name;
+}
+
+/**
+ * Renders a post author for bylines and listings.
+ *
+ * - Live account: the forum display name, linked to the profile when the
+ *   viewer may access profiles.
+ * - Deleted account (negative/dangling uid): the stored author_name
+ *   snapshot with a "(no longer a member)" suffix.
+ * - No information at all: "No longer a member" (e.g. authors that were
+ *   already deleted from the old WordPress site before migration).
+ *
+ * @param int $uid
+ *   The stored author_uid (may be negative or dangling).
+ * @param string $author_name
+ *   The stored author_name snapshot.
+ *
+ * @return string
+ *   Sanitized author HTML.
+ */
+function entity_forum_format_author($uid, $author_name = '') {
+  $account = $uid > 0 ? user_load($uid) : FALSE;
+  if ($account) {
+    $name = entity_forum_user_display_name($account);
+    return user_access('access user profiles')
+      ? l($name, 'user/' . $account->uid)
+      : check_plain($name);
+  }
+  if ($author_name !== '' && $author_name !== NULL) {
+    return t('@name <span class="entity-forum-former-member">(no longer a member)</span>', array('@name' => $author_name));
+  }
+  return '<span class="entity-forum-former-member">' . t('No longer a member') . '</span>';
+}
+
+/**
+ * Implements hook_entity_property_info_alter().
+ *
+ * The schema-derived property defaults from entity_plus type every int
+ * column as 'integer', so Views gets numeric handlers and shows raw
+ * timestamps and bare IDs. Retyping the timestamp columns as 'date' and
+ * the reference columns as their entity type makes entity_plus generate
+ * date handlers and Views relationships (e.g. topic → author user,
+ * topic → last reply → author for "last poster" columns).
+ *
+ * Note: author_uid can be 0 (unknown importer authors) or negative
+ * (deleted accounts) — those rows simply don't join; author_name is the
+ * plain-text fallback for them.
+ */
+function entity_forum_entity_property_info_alter(&$info) {
+  $types = array(
+    'entity_forum_forum' => array(
+      'created' => 'date',
+      'changed' => 'date',
+      'author_uid' => 'user',
+      'parent_id' => 'entity_forum_forum',
+    ),
+    'entity_forum_topic' => array(
+      'created' => 'date',
+      'changed' => 'date',
+      'last_active_time' => 'date',
+      'author_uid' => 'user',
+      'forum_id' => 'entity_forum_forum',
+      'last_reply_id' => 'entity_forum_reply',
+    ),
+    'entity_forum_reply' => array(
+      'created' => 'date',
+      'changed' => 'date',
+      'author_uid' => 'user',
+      'forum_id' => 'entity_forum_forum',
+      'topic_id' => 'entity_forum_topic',
+      'reply_to_id' => 'entity_forum_reply',
+    ),
+  );
+  $labels = array(
+    'last_active_time' => t('Last active time'),
+    'author_uid' => t('Author'),
+    'author_name' => t('Author name (snapshot)'),
+    'forum_id' => t('Forum'),
+    'topic_id' => t('Topic'),
+    'parent_id' => t('Parent forum'),
+    'last_reply_id' => t('Last reply'),
+    'reply_to_id' => t('Replied to'),
+    'reply_count' => t('Reply count'),
+    'voice_count' => t('Voices'),
+    'attachment_count' => t('Attachment count'),
+  );
+  foreach ($types as $entity_type => $columns) {
+    if (!isset($info[$entity_type]['properties'])) {
+      continue;
+    }
+    $properties = &$info[$entity_type]['properties'];
+    foreach ($columns as $column => $type) {
+      if (isset($properties[$column])) {
+        $properties[$column]['type'] = $type;
+      }
+    }
+    foreach ($labels as $column => $label) {
+      if (isset($properties[$column])) {
+        $properties[$column]['label'] = $label;
+      }
+    }
+    unset($properties);
+  }
+}
+
+/**
+ * Returns the forum picture file ID for a user account.
+ *
+ * The picture is a managed file owned by entity_forum (usage type
+ * 'user'), stored in the account data array like the posting name — the
+ * module deliberately avoids site-specific fields and core's user
+ * picture. Importers may seed it (e.g. from a migrated WordPress
+ * avatar) with entity_forum_avatar_save().
+ *
+ * @param object|int $account
+ *   A user account or uid.
+ *
+ * @return int
+ *   The managed file ID, or 0 when the account has no forum picture.
+ */
+function entity_forum_user_avatar_fid($account) {
+  if (is_numeric($account)) {
+    $account = $account > 0 ? user_load($account) : FALSE;
+  }
+  if ($account && !empty($account->data['entity_forum_avatar_fid'])) {
+    return (int) $account->data['entity_forum_avatar_fid'];
+  }
+  return 0;
+}
+
+/**
+ * Renders a post author's forum picture.
+ *
+ * Falls back to the default picture (see
+ * entity_forum_format_default_avatar()) when the author has none —
+ * including deleted and unknown authors (uid <= 0), whose account data
+ * is gone.
+ *
+ * @param int $uid
+ *   Author user ID.
+ * @param string $style
+ *   Image style to render with.
+ *
+ * @return string
+ *   Image markup.
+ */
+function entity_forum_format_avatar($uid, $style = 'entity_forum_avatar') {
+  $fid = $uid > 0 ? entity_forum_user_avatar_fid($uid) : 0;
+  if (!$fid || !($file = file_load($fid))) {
+    return entity_forum_format_default_avatar($style);
+  }
+  return theme('image_style', array(
+    'style_name' => $style,
+    'uri' => $file->uri,
+    'alt' => '',
+    'attributes' => array('class' => array('entity-forum-avatar-img')),
+  ));
+}
+
+/**
+ * Renders the default forum picture.
+ *
+ * An administrator-uploaded image (entity_forum.settings
+ * avatar_default_fid, set at admin/content/entity-forum/settings) when
+ * one exists, otherwise the module's shipped SVG silhouette — rendered
+ * as a plain image sized to match the style, because SVGs cannot pass
+ * through image styles.
+ *
+ * @param string $style
+ *   Image style the picture must match.
+ *
+ * @return string
+ *   Image markup.
+ */
+function entity_forum_format_default_avatar($style = 'entity_forum_avatar') {
+  $fid = (int) config_get('entity_forum.settings', 'avatar_default_fid');
+  if ($fid && ($file = file_load($fid))) {
+    return theme('image_style', array(
+      'style_name' => $style,
+      'uri' => $file->uri,
+      'alt' => '',
+      'attributes' => array('class' => array('entity-forum-avatar-img', 'entity-forum-avatar-default')),
+    ));
+  }
+
+  // Size the SVG to the style's scale/crop dimensions.
+  $size = 96;
+  if (($style_info = image_style_load($style)) && !empty($style_info['effects'])) {
+    $effect = reset($style_info['effects']);
+    if (!empty($effect['data']['width'])) {
+      $size = (int) $effect['data']['width'];
+    }
+  }
+  return theme('image', array(
+    'uri' => backdrop_get_path('module', 'entity_forum') . '/images/avatar-default-symbolic.svg',
+    'alt' => '',
+    'width' => $size,
+    'height' => $size,
+    'attributes' => array('class' => array('entity-forum-avatar-img', 'entity-forum-avatar-default')),
+  ));
+}
+
+/**
+ * Saves (or clears) a member's forum picture.
+ *
+ * Handles the managed-file bookkeeping: marks a new file permanent and
+ * records usage; releases and deletes the previous file when replaced or
+ * cleared. Persists the fid in the account data array.
+ *
+ * @param object $account
+ *   The account the picture belongs to.
+ * @param int $fid
+ *   The new managed file ID, or 0 to clear the picture.
+ */
+function entity_forum_avatar_save($account, $fid) {
+  $fid = (int) $fid;
+  $old_fid = entity_forum_user_avatar_fid($account);
+  if ($old_fid === $fid) {
+    return;
+  }
+
+  if ($fid && ($file = file_load($fid))) {
+    $file->status = FILE_STATUS_PERMANENT;
+    file_save($file);
+    file_usage_add($file, 'entity_forum', 'user', $account->uid);
+  }
+  if ($old_fid && ($old_file = file_load($old_fid))) {
+    file_usage_delete($old_file, 'entity_forum', 'user', $account->uid);
+    file_delete($old_file->fid);
+  }
+
+  $data = $account->data;
+  if ($fid) {
+    $data['entity_forum_avatar_fid'] = $fid;
+  }
+  else {
+    unset($data['entity_forum_avatar_fid']);
+  }
+  db_update('users')
+    ->fields(array('data' => serialize($data)))
+    ->condition('uid', $account->uid)
+    ->execute();
+  $account->data = $data;
+  entity_get_controller('user')->resetCache(array($account->uid));
+}
+
+/**
+ * Renders a post author's signature for the bottom of their posts.
+ *
+ * Follows core comment behaviour: shown only when the site has signatures
+ * enabled (admin/config/people/settings → Personalization) and the author
+ * is a live account with a signature set. The signature runs through its
+ * own text format and core's user_signature theme. Deleted and unknown
+ * authors have no account, so no signature.
+ *
+ * @param int $uid
+ *   Author user ID (may be 0 or negative for gone/unknown authors).
+ *
+ * @return string
+ *   Rendered signature markup, or an empty string.
+ */
+function entity_forum_format_signature($uid) {
+  if ($uid <= 0 || !config_get('system.core', 'user_signatures')) {
+    return '';
+  }
+  $account = user_load($uid);
+  if (!$account || !isset($account->signature) || trim($account->signature) === '') {
+    return '';
+  }
+  $signature = check_markup($account->signature, $account->signature_format, '', TRUE);
+  return '<div class="entity-forum-signature">' . theme('user_signature', array('signature' => $signature)) . '</div>';
+}
+
+/**
+ * Implements hook_entity_load().
+ *
+ * Exposes the author as a standard 'uid' property alongside author_uid.
+ * Modules that key ownership off $entity->uid — notably Field Permissions'
+ * "own" field permissions — can then recognise a forum post's author.
+ * Deleted-author posts (author_uid <= 0) get uid 0, so no live account is
+ * ever treated as their owner.
+ */
+function entity_forum_entity_load($entities, $type) {
+  if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    foreach ($entities as $entity) {
+      $entity->uid = (isset($entity->author_uid) && $entity->author_uid > 0) ? (int) $entity->author_uid : 0;
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_presave().
+ *
+ * Snapshots the author display name onto every forum entity at save time,
+ * so attribution survives the account's later deletion.
+ */
+function entity_forum_entity_presave($entity, $type) {
+  if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    if ((!isset($entity->author_name) || $entity->author_name === '') && !empty($entity->author_uid) && $entity->author_uid > 0) {
+      $account = user_load($entity->author_uid);
+      if ($account) {
+        $entity->author_name = entity_forum_user_display_name($account);
+      }
+    }
+  }
+}
+
+/**
+ * Re-attributes all forum content owned by a user to another user.
+ *
+ * This is the reinstatement API: a deleted member's posts keep their last
+ * uid flipped negative, so to reinstate them to a new account call
+ * entity_forum_reassign_user_content(-$old_uid, $new_uid). Uses direct
+ * queries (not entity saves) so a member with thousands of posts
+ * reassigns instantly; the denormalized topic statistics are unaffected
+ * by authorship changes. Note: the author_name snapshot is deliberately
+ * left untouched — refresh it separately if the new account should be
+ * displayed instead.
+ *
+ * @param int $uid
+ *   The current owner (negative for a deleted member's last uid).
+ * @param int $new_uid
+ *   The new owner.
+ *
+ * @return int
+ *   Total number of reassigned records.
+ */
+function entity_forum_reassign_user_content($uid, $new_uid) {
+  $total = 0;
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $table) {
+    $total += db_update($table)
+      ->fields(array('author_uid' => $new_uid))
+      ->condition('author_uid', $uid)
+      ->execute();
+    entity_get_controller($table)->resetCache();
+  }
+  if ($total) {
+    watchdog('entity_forum', 'Re-attributed @count forum item(s) from user @uid to user @new_uid.', array(
+      '@count' => $total,
+      '@uid' => $uid,
+      '@new_uid' => $new_uid,
+    ), WATCHDOG_NOTICE);
+  }
+  return $total;
+}
+
+/**
+ * Counts forum content (forums + topics + replies) authored by a user.
+ *
+ * @param int $uid
+ *   The user ID.
+ *
+ * @return int
+ *   Number of forum records the user authored.
+ */
+function entity_forum_user_content_count($uid) {
+  return (int) db_query('SELECT
+    (SELECT COUNT(*) FROM {entity_forum_forum} WHERE author_uid = :uid)
+    + (SELECT COUNT(*) FROM {entity_forum_topic} WHERE author_uid = :uid)
+    + (SELECT COUNT(*) FROM {entity_forum_reply} WHERE author_uid = :uid)', array(':uid' => $uid))->fetchField();
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_cancel_confirm_form().
+ *
+ * Tells the administrator how many forum posts the member has and that
+ * they are kept whichever cancellation method is chosen: bylines switch to
+ * the member's name with "(no longer a member)", and the posts stay
+ * reinstatable to a new account later.
+ */
+function entity_forum_form_user_cancel_confirm_form_alter(&$form, &$form_state) {
+  $account = $form_state['build_info']['args'][0];
+  $count = entity_forum_user_content_count($account->uid);
+  if ($count) {
+    $form['entity_forum_notice'] = array(
+      '#markup' => '<div class="messages info">' . format_plural($count,
+        'This member has 1 forum post. Forum posts are never deleted with an account: whichever method is chosen, the post is kept, shown as "@name (no longer a member)", and can be reinstated to a new account later.',
+        'This member has @count forum posts. Forum posts are never deleted with an account: whichever method is chosen, the posts are kept, shown as "@name (no longer a member)", and can be reinstated to a new account later.',
+        array('@name' => entity_forum_user_display_name($account))) . '</div>',
+      '#weight' => -10,
+    );
+  }
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for user_multiple_cancel_confirm().
+ *
+ * Same notice as the single-account form, for the bulk cancel action.
+ */
+function entity_forum_form_user_multiple_cancel_confirm_alter(&$form, &$form_state) {
+  $form['entity_forum_notice'] = array(
+    '#markup' => '<div class="messages info">' . t('Forum posts are never deleted with an account: whichever method is chosen, they are kept, shown under the member\'s name as "(no longer a member)", and can be reinstated to a new account later.') . '</div>',
+    '#weight' => -10,
+  );
+}
+
+/**
+ * Implements hook_entity_insert().
+ *
+ * Keeps the denormalized reply statistics on topics current whenever a
+ * reply is created — by forms, the importer, or any other API user.
+ */
+function entity_forum_entity_insert($entity, $type) {
+  if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    entity_forum_forum_counts_reset();
+  }
+  if ($type === 'entity_forum_reply') {
+    entity_forum_topic_recalculate_stats((int) $entity->topic_id);
+  }
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function entity_forum_entity_update($entity, $type) {
+  if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    entity_forum_forum_counts_reset();
+  }
+  if ($type === 'entity_forum_reply') {
+    entity_forum_topic_recalculate_stats((int) $entity->topic_id);
+    // If the reply moved to a different topic, refresh the old one too.
+    if (isset($entity->original) && $entity->original->topic_id != $entity->topic_id) {
+      entity_forum_topic_recalculate_stats((int) $entity->original->topic_id);
+    }
+  }
+
+  // Keep attachment storage in sync with forum visibility, so a post
+  // moving into a private forum (or a forum turning private) re-homes its
+  // files to private:// and vice versa.
+  if ($type === 'entity_forum_forum' && isset($entity->original) && $entity->original->visibility !== $entity->visibility) {
+    entity_forum_rescheme_forum_files((int) $entity->forum_id);
+  }
+  if ($type === 'entity_forum_topic' && isset($entity->original) && $entity->original->forum_id != $entity->forum_id) {
+    // Keep replies' denormalized forum_id in step with the topic's new
+    // forum, then re-scheme the topic's and its replies' attachments.
+    db_update('entity_forum_reply')
+      ->fields(array('forum_id' => (int) $entity->forum_id))
+      ->condition('topic_id', (int) $entity->topic_id)
+      ->execute();
+    entity_get_controller('entity_forum_reply')->resetCache();
+    $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid', array(':tid' => $entity->topic_id))->fetchCol();
+    foreach (array_merge(array(array('entity_forum_topic', $entity->topic_id)), array_map(function ($rid) {
+      return array('entity_forum_reply', $rid);
+    }, $reply_ids)) as $ref) {
+      $fids = db_query("SELECT fid FROM {file_usage} WHERE module = 'entity_forum' AND type = :type AND id = :id", array(':type' => $ref[0], ':id' => $ref[1]))->fetchCol();
+      foreach ($fids as $fid) {
+        $file = file_load($fid);
+        if ($file) {
+          entity_forum_rescheme_file($file);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_entity_delete().
+ *
+ * Cascades topic deletion to its replies and refreshes topic statistics
+ * when replies are removed.
+ */
+function entity_forum_entity_delete($entity, $type) {
+  if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    entity_forum_forum_counts_reset();
+  }
+  if ($type === 'entity_forum_topic') {
+    $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :topic_id', array(
+      ':topic_id' => $entity->topic_id,
+    ))->fetchCol();
+    if ($reply_ids) {
+      entity_get_controller('entity_forum_reply')->delete($reply_ids);
+    }
+  }
+  elseif ($type === 'entity_forum_reply') {
+    entity_forum_topic_recalculate_stats((int) $entity->topic_id);
+  }
+}
+
+/**
+ * Recalculates the denormalized reply statistics for a topic.
+ *
+ * Recomputes reply_count, last_reply_id, last_active_time, voice_count
+ * (distinct participants) and attachment_count from the published replies
+ * and {file_usage} rows actually stored, rather than incrementing
+ * counters, so it is safe to call at any time (including after bulk
+ * imports).
+ *
+ * @param int $topic_id
+ *   The topic to refresh.
+ */
+function entity_forum_topic_recalculate_stats($topic_id) {
+  $topic_created = db_query('SELECT created FROM {entity_forum_topic} WHERE topic_id = :topic_id', array(
+    ':topic_id' => $topic_id,
+  ))->fetchField();
+  if ($topic_created === FALSE) {
+    // Topic is gone (e.g. cascading delete); nothing to update.
+    return;
+  }
+
+  $stats = db_query('SELECT COUNT(reply_id) AS reply_count, MAX(created) AS last_created FROM {entity_forum_reply} WHERE topic_id = :topic_id AND status = 1', array(
+    ':topic_id' => $topic_id,
+  ))->fetchObject();
+
+  $last_reply_id = 0;
+  if ($stats->reply_count) {
+    $last_reply_id = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :topic_id AND status = 1 ORDER BY created DESC, reply_id DESC LIMIT 1', array(
+      ':topic_id' => $topic_id,
+    ))->fetchField();
+  }
+
+  // Distinct participants: topic author + published repliers ("Voices").
+  // Unknown authors (uid 0) merge into one voice, matching bbPress.
+  $voice_count = (int) db_query('SELECT COUNT(DISTINCT author_uid) FROM (SELECT author_uid FROM {entity_forum_reply} WHERE topic_id = :tid1 AND status = 1 UNION SELECT author_uid FROM {entity_forum_topic} WHERE topic_id = :tid2) participants', array(
+    ':tid1' => $topic_id,
+    ':tid2' => $topic_id,
+  ))->fetchField();
+
+  // Attachments on the topic post and its published replies.
+  $attachment_count = (int) db_query("SELECT COUNT(*) FROM {file_usage} fu WHERE fu.module = 'entity_forum' AND ((fu.type = 'entity_forum_topic' AND fu.id = :tid1) OR (fu.type = 'entity_forum_reply' AND fu.id IN (SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid2 AND status = 1)))", array(
+    ':tid1' => $topic_id,
+    ':tid2' => $topic_id,
+  ))->fetchField();
+
+  db_update('entity_forum_topic')
+    ->fields(array(
+      'reply_count' => (int) $stats->reply_count,
+      'last_reply_id' => (int) $last_reply_id,
+      'last_active_time' => max((int) $topic_created, (int) $stats->last_created),
+      'voice_count' => max(1, $voice_count),
+      'attachment_count' => $attachment_count,
+    ))
+    ->condition('topic_id', $topic_id)
+    ->execute();
+  entity_get_controller('entity_forum_topic')->resetCache(array($topic_id));
+}
+
+/**
+ * Returns the number of published topics in a forum.
+ *
+ * @param int $forum_id
+ *   The forum ID.
+ *
+ * @return int
+ *   Count of published topics.
+ */
+function entity_forum_forum_topic_count($forum_id) {
+  $counts = entity_forum_forum_counts();
+  return isset($counts[$forum_id]) ? $counts[$forum_id]['topic_count'] : 0;
+}
+
+/**
+ * Returns aggregate post counts and last activity for every forum.
+ *
+ * Built with two grouped queries (topics, replies) plus an in-PHP rollup
+ * of each forum's descendants into it — so a parent forum's totals
+ * include everything in its sub-forums (bbPress behaviour). The whole map
+ * is computed once and cached, both per-request (backdrop_static) and in
+ * the 'cache' bin; entity_forum_forum_counts_reset() clears it when
+ * forums, topics or replies change. Reading a single forum's count is
+ * therefore free of per-row SQL, which keeps the forums index (and any
+ * Views forum list) from doing N+1 count queries.
+ *
+ * @return array
+ *   Map keyed by forum_id, each value an array with:
+ *   - topic_count: published topics in the forum and its descendants.
+ *   - post_count: topics + published replies (bbPress "Posts").
+ *   - reply_count: published replies only.
+ *   - last_active_time: newest topic last-activity timestamp, or 0.
+ */
+function entity_forum_forum_counts() {
+  $cache = &backdrop_static(__FUNCTION__);
+  if (isset($cache)) {
+    return $cache;
+  }
+  if ($cached = cache_get('entity_forum_forum_counts')) {
+    $cache = $cached->data;
+    return $cache;
+  }
+
+  // Every forum starts at zero so childless forums are represented.
+  $map = array();
+  foreach (db_query('SELECT forum_id, parent_id FROM {entity_forum_forum}') as $forum) {
+    $map[$forum->forum_id] = array(
+      'topic_count' => 0,
+      'reply_count' => 0,
+      'post_count' => 0,
+      'last_active_time' => 0,
+      'parent_id' => (int) $forum->parent_id,
+    );
+  }
+
+  // Direct (non-rolled-up) tallies: two grouped queries.
+  $topic_rows = db_query('SELECT forum_id, COUNT(topic_id) AS topics, MAX(last_active_time) AS last_active FROM {entity_forum_topic} WHERE status = 1 GROUP BY forum_id');
+  foreach ($topic_rows as $row) {
+    if (isset($map[$row->forum_id])) {
+      $map[$row->forum_id]['topic_count'] = (int) $row->topics;
+      $map[$row->forum_id]['last_active_time'] = (int) $row->last_active;
+    }
+  }
+  $reply_rows = db_query('SELECT forum_id, COUNT(reply_id) AS replies FROM {entity_forum_reply} WHERE status = 1 GROUP BY forum_id');
+  foreach ($reply_rows as $row) {
+    if (isset($map[$row->forum_id])) {
+      $map[$row->forum_id]['reply_count'] = (int) $row->replies;
+    }
+  }
+
+  // Roll each forum's own tallies up into all of its ancestors, so a
+  // parent's totals include its whole sub-tree. Walk parent_id links
+  // with a visited guard, tolerating any accidental cycle in the data.
+  foreach ($map as $forum_id => $own) {
+    $ancestor = $own['parent_id'];
+    $seen = array($forum_id => TRUE);
+    while ($ancestor && isset($map[$ancestor]) && empty($seen[$ancestor])) {
+      $map[$ancestor]['topic_count'] += $own['topic_count'];
+      $map[$ancestor]['reply_count'] += $own['reply_count'];
+      if ($own['last_active_time'] > $map[$ancestor]['last_active_time']) {
+        $map[$ancestor]['last_active_time'] = $own['last_active_time'];
+      }
+      $seen[$ancestor] = TRUE;
+      $ancestor = $map[$ancestor]['parent_id'];
+    }
+  }
+
+  // Derive the bbPress-style "Posts" total (topics + replies) and drop
+  // the internal parent_id helper from the returned rows.
+  foreach ($map as $forum_id => &$row) {
+    $row['post_count'] = $row['topic_count'] + $row['reply_count'];
+    unset($row['parent_id']);
+  }
+  unset($row);
+
+  cache_set('entity_forum_forum_counts', $map);
+  $cache = $map;
+  return $cache;
+}
+
+/**
+ * Clears the cached forum counts map.
+ *
+ * Called whenever forums, topics or replies change, so
+ * entity_forum_forum_counts() recomputes on next read.
+ */
+function entity_forum_forum_counts_reset() {
+  backdrop_static_reset('entity_forum_forum_counts');
+  cache_clear_all('entity_forum_forum_counts', 'cache');
+}
+
+/**
+ * Returns the forum_id => parent_id map for all forums.
+ *
+ * Statically cached; the source of the ancestor/descendant helpers and
+ * the counts rollup.
+ *
+ * @return array
+ *   Map of forum_id to (int) parent_id.
+ */
+function entity_forum_forum_parents() {
+  $parents = &backdrop_static(__FUNCTION__);
+  if (!isset($parents)) {
+    $parents = array();
+    foreach (db_query('SELECT forum_id, parent_id FROM {entity_forum_forum}') as $forum) {
+      $parents[$forum->forum_id] = (int) $forum->parent_id;
+    }
+  }
+  return $parents;
+}
+
+/**
+ * Returns a forum's ancestor IDs, root-first (nearest parent last).
+ *
+ * Walks parent_id links with a visited guard so a corrupt cycle in the
+ * data can never loop forever. Suitable for building breadcrumbs.
+ *
+ * @param int $forum_id
+ *   The forum to find ancestors of.
+ *
+ * @return array
+ *   Ancestor forum IDs ordered from the root down to the immediate
+ *   parent (excludes the forum itself); empty for a top-level forum.
+ */
+function entity_forum_forum_ancestors($forum_id) {
+  $parents = entity_forum_forum_parents();
+  $chain = array();
+  $seen = array((int) $forum_id => TRUE);
+  $parent = isset($parents[$forum_id]) ? $parents[$forum_id] : 0;
+  while ($parent && isset($parents[$parent]) && empty($seen[$parent])) {
+    $chain[] = $parent;
+    $seen[$parent] = TRUE;
+    $parent = $parents[$parent];
+  }
+  return array_reverse($chain);
+}
+
+/**
+ * Returns a forum's descendant IDs (children, grandchildren, ...).
+ *
+ * Used to keep a forum from being re-parented under its own sub-tree,
+ * which would create a cycle.
+ *
+ * @param int $forum_id
+ *   The forum to find descendants of.
+ *
+ * @return array
+ *   Descendant forum IDs (excludes the forum itself).
+ */
+function entity_forum_forum_descendants($forum_id) {
+  $parents = entity_forum_forum_parents();
+  $descendants = array();
+  $frontier = array((int) $forum_id);
+  while ($frontier) {
+    $current = array_pop($frontier);
+    foreach ($parents as $child_id => $parent_id) {
+      if ($parent_id === $current && !in_array($child_id, $descendants, TRUE) && $child_id != $forum_id) {
+        $descendants[] = $child_id;
+        $frontier[] = $child_id;
+      }
+    }
+  }
+  return $descendants;
+}
+
+/**
+ * Renders an author name with date for forum posts.
+ *
+ * @param int $uid
+ *   Author user ID (may be negative/dangling for deleted accounts).
+ * @param int $timestamp
+ *   Post creation time.
+ * @param string $author_name
+ *   The stored author_name snapshot, shown when the account is gone.
+ *
+ * @return string
+ *   Sanitized "name — date" HTML snippet.
+ */
+function entity_forum_format_byline($uid, $timestamp, $author_name = '') {
+  return t('!name — !date', array(
+    '!name' => entity_forum_format_author($uid, $author_name),
+    '!date' => format_date($timestamp, 'short'),
+  ));
+}
+
+/**
+ * Menu access callback: may the viewer see this account's Forum tab?
+ *
+ * @param object $account
+ *   The account whose posts would be listed.
+ *
+ * @return bool
+ *   TRUE for the account owner and user administrators.
+ */
+function entity_forum_user_posts_access($account) {
+  return $GLOBALS['user']->uid == $account->uid || user_access('administer users');
+}
+
+/**
+ * Saves a member's forum posting name and refreshes post snapshots.
+ *
+ * Stores the handle in the account's data array (removed when empty, so
+ * the account name applies again) and refreshes the author_name snapshots
+ * on the member's existing posts so the new name applies everywhere,
+ * including after a later account deletion.
+ *
+ * @param object $account
+ *   The account to save the posting name for.
+ * @param string $posting_name
+ *   The new posting name; an empty string clears it.
+ */
+function entity_forum_posting_name_save($account, $posting_name) {
+  $posting_name = trim($posting_name);
+
+  $data = $account->data;
+  if ($posting_name === '') {
+    unset($data['entity_forum_posting_name']);
+  }
+  else {
+    $data['entity_forum_posting_name'] = $posting_name;
+  }
+  db_update('users')
+    ->fields(array('data' => serialize($data)))
+    ->condition('uid', $account->uid)
+    ->execute();
+  entity_get_controller('user')->resetCache(array($account->uid));
+
+  // Refresh the snapshots on existing posts.
+  $fresh = user_load($account->uid);
+  $display_name = entity_forum_user_display_name($fresh);
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $table) {
+    db_update($table)
+      ->fields(array('author_name' => $display_name))
+      ->condition('author_uid', $account->uid)
+      ->execute();
+    entity_get_controller($table)->resetCache();
+  }
+}

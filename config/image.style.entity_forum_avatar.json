@@ -1,0 +1,15 @@
+{
+    "_config_name": "image.style.entity_forum_avatar",
+    "label": "Forum picture",
+    "name": "entity_forum_avatar",
+    "effects": [
+        {
+            "name": "image_scale_and_crop",
+            "data": {
+                "width": 96,
+                "height": 96
+            },
+            "weight": 1
+        }
+    ]
+}
