@@ -252,6 +252,7 @@ function entity_forum_topic_page($topic) {
 
   // The opening post.
   $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
+  $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
   $build['topic'] = array(
     '#prefix' => '<div class="entity-forum-topic-wrapper"><h2 class="entity-forum-topic-title">' . check_plain($topic->title) . '</h2>',
     '#suffix' => '</div>',
@@ -262,10 +263,11 @@ function entity_forum_topic_page($topic) {
       $topic->created,
       'topic-' . $topic->id(),
       _entity_forum_post_links('topic', $topic, $topic),
-      '',
+      $highlight['prefix'],
       entity_forum_post_attachments('entity_forum_topic', $topic->id()),
       $topic->author_name,
-      isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : ''
+      isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
+      $highlight['classes']
     ),
   );
 
@@ -352,6 +354,7 @@ function _entity_forum_topic_replies_build($topic) {
       if ($is_child && $reply->reply_to_id && $reply->reply_to_id != $root_id) {
         $prefix = '<div class="entity-forum-reply-context">' . l(t('In reply to #@id', array('@id' => $reply->reply_to_id)), current_path(), array('fragment' => 'reply-' . $reply->reply_to_id)) . '</div>';
       }
+      $highlight = _entity_forum_post_report_highlight($topic, 'reply', $reply_id);
       $post = _entity_forum_render_post(
         $reply->content,
         $reply->format,
@@ -359,10 +362,11 @@ function _entity_forum_topic_replies_build($topic) {
         $reply->created,
         'reply-' . $reply_id,
         _entity_forum_post_links('reply', $reply, $topic),
-        $prefix,
+        $highlight['prefix'] . $prefix,
         entity_forum_post_attachments('entity_forum_reply', $reply_id),
         $reply->author_name,
-        isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : ''
+        isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : '',
+        $highlight['classes']
       );
       $items .= $is_child ? '<div class="entity-forum-reply-child">' . $post . '</div>' : $post;
     }
@@ -456,6 +460,7 @@ function entity_forum_node_discussion_build($topic) {
   );
   if (trim((string) $topic->content) !== '') {
     $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
+    $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
     $build['opening'] = array(
       '#markup' => _entity_forum_render_post(
         $topic->content,
@@ -464,10 +469,11 @@ function entity_forum_node_discussion_build($topic) {
         $topic->created,
         'topic-' . $topic->id(),
         _entity_forum_post_links('topic', $topic, $topic),
-        '',
+        $highlight['prefix'],
         entity_forum_post_attachments('entity_forum_topic', $topic->id()),
         $topic->author_name,
-        isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : ''
+        isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
+        $highlight['classes']
       ),
     );
   }
@@ -991,12 +997,16 @@ function _entity_forum_render_fields($entity_type, array $entities) {
  *   Stored author_name snapshot, shown when the account is gone.
  * @param string $fields
  *   Rendered attached-field markup (see _entity_forum_render_fields()).
+ * @param array $extra_classes
+ *   Additional CSS classes for the post wrapper (e.g. the moderator-only
+ *   reported-content highlight).
  *
  * @return string
  *   Sanitized post HTML.
  */
-function _entity_forum_render_post($content, $format, $uid, $created, $html_id, $links = '', $prefix = '', $attachments = '', $author_name = '', $fields = '') {
-  $output = '<div class="entity-forum-post" id="' . check_plain($html_id) . '">';
+function _entity_forum_render_post($content, $format, $uid, $created, $html_id, $links = '', $prefix = '', $attachments = '', $author_name = '', $fields = '', array $extra_classes = array()) {
+  $classes = array_merge(array('entity-forum-post'), $extra_classes);
+  $output = '<div class="' . check_plain(implode(' ', $classes)) . '" id="' . check_plain($html_id) . '">';
   $output .= $prefix;
   $avatar = entity_forum_format_avatar($uid);
   if ($avatar) {
@@ -1012,6 +1022,37 @@ function _entity_forum_render_post($content, $format, $uid, $created, $html_id, 
   }
   $output .= '</div>';
   return $output;
+}
+
+/**
+ * Returns the moderator-only reported-content highlight for a post.
+ *
+ * When the viewer is a moderator and the post has open reports, the
+ * post gets a badge (prefix markup linking to the moderation queue)
+ * and a highlight class — so reported content is easy to spot inside
+ * the thread itself. Everyone else gets nothing.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic being rendered.
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param int $id
+ *   The post's entity ID.
+ *
+ * @return array
+ *   Array with 'prefix' (badge markup or '') and 'classes' (array).
+ */
+function _entity_forum_post_report_highlight($topic, $type, $id) {
+  if (entity_forum_user_is_moderator()) {
+    $open = entity_forum_topic_open_reports((int) $topic->id());
+    if (!empty($open[$type][(int) $id])) {
+      return array(
+        'prefix' => entity_forum_reported_badge($open[$type][(int) $id]),
+        'classes' => array('entity-forum-reported'),
+      );
+    }
+  }
+  return array('prefix' => '', 'classes' => array());
 }
 
 /**

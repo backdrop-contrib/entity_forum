@@ -1334,6 +1334,59 @@ function entity_forum_report_create($entity_type, $entity_id, $reason, $account 
 }
 
 /**
+ * Returns open-report counts for every post of a topic.
+ *
+ * Used to highlight reported posts to moderators inside the thread
+ * itself (topic page and node discussions), so reported content is
+ * easy to spot in place. One indexed query per rendered topic, and
+ * callers only invoke it for moderators.
+ *
+ * @param int $topic_id
+ *   The topic whose posts are checked.
+ *
+ * @return array
+ *   Two maps of open (unresolved) report counts:
+ *   - topic: keyed by topic_id.
+ *   - reply: keyed by reply_id.
+ */
+function entity_forum_topic_open_reports($topic_id) {
+  $cache = &backdrop_static(__FUNCTION__, array());
+  if (isset($cache[$topic_id])) {
+    return $cache[$topic_id];
+  }
+  $map = array('topic' => array(), 'reply' => array());
+  $rows = db_query("SELECT r.entity_type, r.entity_id, COUNT(r.report_id) AS reports
+    FROM {entity_forum_report} r
+    WHERE r.resolved = 0 AND (
+      (r.entity_type = 'entity_forum_topic' AND r.entity_id = :tid1)
+      OR (r.entity_type = 'entity_forum_reply' AND r.entity_id IN (SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid2))
+    )
+    GROUP BY r.entity_type, r.entity_id", array(':tid1' => $topic_id, ':tid2' => $topic_id));
+  foreach ($rows as $row) {
+    $key = $row->entity_type === 'entity_forum_topic' ? 'topic' : 'reply';
+    $map[$key][(int) $row->entity_id] = (int) $row->reports;
+  }
+  $cache[$topic_id] = $map;
+  return $map;
+}
+
+/**
+ * Builds the moderator-only "reported content" badge for a post.
+ *
+ * @param int $count
+ *   Number of open reports on the post.
+ *
+ * @return string
+ *   Badge markup linking to the moderation queue.
+ */
+function entity_forum_reported_badge($count) {
+  return '<div class="entity-forum-reported-flag">' . l(
+    format_plural($count, 'Reported content — 1 open report', 'Reported content — @count open reports'),
+    'forums/moderation'
+  ) . '</div>';
+}
+
+/**
  * Whether the current request was made by htmx.
  *
  * htmx sends an HX-Request header with every request it issues; plain

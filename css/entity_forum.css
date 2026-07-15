@@ -231,3 +231,25 @@ p.entity-forum-attachment-filename {
     font-style: italic;
     margin: 0.5em 0;
 }
+
+/* Moderator-only highlight on posts with open reports. */
+.entity-forum-post.entity-forum-reported {
+    outline: 2px solid #e6a23c;
+    outline-offset: 2px;
+    background: #fffaf2;
+    border-radius: 4px;
+}
+.entity-forum-reported-flag {
+    display: inline-block;
+    background: #e6a23c;
+    color: #fff;
+    font-size: 0.85em;
+    font-weight: bold;
+    padding: 2px 8px;
+    border-radius: 3px;
+    margin-bottom: 6px;
+}
+.entity-forum-reported-flag a {
+    color: #fff;
+    text-decoration: none;
+}
