@@ -63,6 +63,7 @@ function entity_forum_admin_topics() {
     array('data' => t('Author')),
     array('data' => t('Replies'), 'field' => 'reply_count'),
     array('data' => t('Last active'), 'field' => 'last_active_time', 'sort' => 'desc'),
+    array('data' => t('Listing'), 'field' => 'listing'),
     array('data' => t('Status'), 'field' => 'status'),
     t('Operations'),
   );
@@ -70,12 +71,19 @@ function entity_forum_admin_topics() {
   $query = db_select('entity_forum_topic', 't')
     ->extend('PagerDefault')
     ->extend('TableSort')
-    ->fields('t', array('topic_id', 'title', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'status'))
+    ->fields('t', array('topic_id', 'title', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status'))
     ->orderByHeader($header)
     ->limit(50);
   $result = $query->execute();
 
   $forums_by_id = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
+
+  // Short labels for the Listing column; 'normal' shows as a quiet dash.
+  $listing_labels = array(
+    ENTITY_FORUM_LISTING_NORMAL => t('Listed'),
+    ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Moderators only'),
+    ENTITY_FORUM_LISTING_UNLISTED => t('Unlisted'),
+  );
 
   $rows = array();
   foreach ($result as $topic) {
@@ -85,6 +93,7 @@ function entity_forum_admin_topics() {
       entity_forum_format_author($topic->author_uid, $topic->author_name),
       $topic->reply_count,
       format_date($topic->last_active_time, 'short'),
+      isset($listing_labels[$topic->listing]) ? $listing_labels[$topic->listing] : check_plain($topic->listing),
       $topic->status ? t('Published') : t('Unpublished'),
       _entity_forum_admin_operations('topic', $topic->topic_id),
     );
@@ -390,6 +399,13 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
     '#title' => t('Closed (no new replies)'),
     '#default_value' => $topic->closed,
   );
+  $form['listing'] = array(
+    '#type' => 'select',
+    '#title' => t('Topic list visibility'),
+    '#options' => entity_forum_topic_listing_options(),
+    '#default_value' => $topic->listing,
+    '#description' => t('"Only to moderators" holds the topic for moderation — the topic page itself also becomes moderator-only. "Not shown" keeps the topic off forum lists but leaves its page viewable (used for e.g. comment threads attached elsewhere).'),
+  );
   $form['status'] = array(
     '#type' => 'checkbox',
     '#title' => t('Published'),
@@ -429,6 +445,7 @@ function entity_forum_topic_form_submit($form, &$form_state) {
   $topic->forum_id = (int) $values['forum_id'];
   $topic->sticky = (int) $values['sticky'];
   $topic->closed = (int) $values['closed'];
+  $topic->listing = $values['listing'];
   $topic->status = (int) $values['status'];
   $topic->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_topic', $topic, $form, $form_state);

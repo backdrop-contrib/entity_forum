@@ -214,6 +214,12 @@ function entity_forum_topic_page($topic) {
     }
   }
 
+  // Non-moderators are already blocked by entity_forum_topic_view_access();
+  // tell moderators why this topic is off the public forum list.
+  if ($topic->listing === ENTITY_FORUM_LISTING_ADMIN_ONLY) {
+    backdrop_set_message(t('This topic is visible only to moderators.'), 'warning');
+  }
+
   // Breadcrumb: Home > Forums > ancestor chain > the topic's forum.
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
 

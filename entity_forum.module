@@ -14,6 +14,33 @@
  */
 
 /**
+ * Topic listing modes: how a topic appears in forum topic lists.
+ *
+ * - normal: listed for everyone who can view the forum.
+ * - admin_only: listed only for moderators (for review/moderation); the
+ *   topic page itself is also restricted to moderators.
+ * - unlisted: never listed, but the topic page stays viewable at its own
+ *   URL — used for e.g. node-attached comment threads.
+ */
+define('ENTITY_FORUM_LISTING_NORMAL', 'normal');
+define('ENTITY_FORUM_LISTING_ADMIN_ONLY', 'admin_only');
+define('ENTITY_FORUM_LISTING_UNLISTED', 'unlisted');
+
+/**
+ * Returns the topic listing mode options for select elements.
+ *
+ * @return array
+ *   Options keyed by listing machine name.
+ */
+function entity_forum_topic_listing_options() {
+  return array(
+    ENTITY_FORUM_LISTING_NORMAL => t('Shown in the forum topic list'),
+    ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Shown only to moderators (for moderation)'),
+    ENTITY_FORUM_LISTING_UNLISTED => t('Not shown in the forum topic list'),
+  );
+}
+
+/**
  * Implements hook_entity_info().
  */
 function entity_forum_entity_info() {
@@ -200,6 +227,30 @@ function entity_forum_views_data_alter(&$data) {
       ),
     );
   }
+}
+
+/**
+ * Implements hook_views_query_alter().
+ *
+ * Enforces the topic listing modes on every View listing topics: only
+ * normally listed topics appear, plus admin_only topics when the viewer
+ * is a moderator. Applied at the query level so the shipped
+ * entity_forum_topics view — and any clone a site builder makes — can
+ * never leak held-for-moderation topics. Unlisted topics (e.g.
+ * node-attached comment threads) stay out of all topic lists.
+ *
+ * A view that defines its own 'listing' filter is left alone — that is
+ * the opt-out for special-purpose views such as moderation queues.
+ */
+function entity_forum_views_query_alter(&$view, &$query) {
+  if ($view->base_table !== 'entity_forum_topic' || isset($view->filter['listing'])) {
+    return;
+  }
+  $allowed = array(ENTITY_FORUM_LISTING_NORMAL);
+  if (user_access('administer entity forum topic') || user_access('administer entity forum')) {
+    $allowed[] = ENTITY_FORUM_LISTING_ADMIN_ONLY;
+  }
+  $query->add_where(0, 'entity_forum_topic.listing', $allowed, 'IN');
 }
 
 /**
@@ -730,6 +781,13 @@ function entity_forum_topic_access($op, $topic = NULL, $account = NULL, $entity_
       return user_access('create entity forum topic', $account);
 
     case 'view':
+      // Admin-only topics (held for moderation) are visible to moderators
+      // alone; normal and unlisted topics are viewable by anyone who can
+      // reach them (the forum-level check runs separately).
+      if ($topic && isset($topic->listing) && $topic->listing === ENTITY_FORUM_LISTING_ADMIN_ONLY) {
+        return user_access('administer entity forum topic', $account)
+          || user_access('administer entity forum', $account);
+      }
       return TRUE;
 
     case 'update':
@@ -780,7 +838,8 @@ function entity_forum_reply_access($op, $reply = NULL, $account = NULL, $entity_
  * Menu access callback: can the user view a topic (via its forum)?
  *
  * Topic visibility is inherited from the parent forum, so private forums
- * also hide their topics.
+ * also hide their topics. The topic's own view access applies on top:
+ * admin_only topics are restricted to moderators.
  *
  * @param EntityForumTopic $topic
  *   The topic being viewed.
@@ -789,6 +848,9 @@ function entity_forum_reply_access($op, $reply = NULL, $account = NULL, $entity_
  *   Whether access is granted.
  */
 function entity_forum_topic_view_access($topic) {
+  if (!entity_forum_topic_access('view', $topic)) {
+    return FALSE;
+  }
   $forum = entity_load('entity_forum_forum', $topic->forum_id);
   return $forum ? entity_forum_forum_access('view', $forum) : user_access('administer entity forum');
 }
@@ -976,6 +1038,7 @@ function entity_forum_entity_property_info_alter(&$info) {
     'reply_count' => t('Reply count'),
     'voice_count' => t('Voices'),
     'attachment_count' => t('Attachment count'),
+    'listing' => t('Topic list visibility'),
   );
   foreach ($types as $entity_type => $columns) {
     if (!isset($info[$entity_type]['properties'])) {
@@ -1482,15 +1545,22 @@ function entity_forum_forum_counts() {
     );
   }
 
-  // Direct (non-rolled-up) tallies: two grouped queries.
-  $topic_rows = db_query('SELECT forum_id, COUNT(topic_id) AS topics, MAX(last_active_time) AS last_active FROM {entity_forum_topic} WHERE status = 1 GROUP BY forum_id');
+  // Direct (non-rolled-up) tallies: two grouped queries. Only normally
+  // listed topics count — admin_only and unlisted topics (and their
+  // replies) are invisible in lists, and the map is cached globally, so
+  // it must reflect what the public sees.
+  $topic_rows = db_query('SELECT forum_id, COUNT(topic_id) AS topics, MAX(last_active_time) AS last_active FROM {entity_forum_topic} WHERE status = 1 AND listing = :listing GROUP BY forum_id', array(
+    ':listing' => ENTITY_FORUM_LISTING_NORMAL,
+  ));
   foreach ($topic_rows as $row) {
     if (isset($map[$row->forum_id])) {
       $map[$row->forum_id]['topic_count'] = (int) $row->topics;
       $map[$row->forum_id]['last_active_time'] = (int) $row->last_active;
     }
   }
-  $reply_rows = db_query('SELECT forum_id, COUNT(reply_id) AS replies FROM {entity_forum_reply} WHERE status = 1 GROUP BY forum_id');
+  $reply_rows = db_query('SELECT r.forum_id, COUNT(r.reply_id) AS replies FROM {entity_forum_reply} r INNER JOIN {entity_forum_topic} t ON t.topic_id = r.topic_id WHERE r.status = 1 AND t.listing = :listing GROUP BY r.forum_id', array(
+    ':listing' => ENTITY_FORUM_LISTING_NORMAL,
+  ));
   foreach ($reply_rows as $row) {
     if (isset($map[$row->forum_id])) {
       $map[$row->forum_id]['reply_count'] = (int) $row->replies;

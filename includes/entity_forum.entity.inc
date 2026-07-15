@@ -214,6 +214,12 @@ class EntityForumTopic extends Entity {
   public $closed = 0;
 
   /**
+   * Topic list visibility: 'normal', 'admin_only' or 'unlisted'.
+   * @var string
+   */
+  public $listing = 'normal';
+
+  /**
    * Denormalized count of published replies (maintained automatically).
    * @var int
    */
