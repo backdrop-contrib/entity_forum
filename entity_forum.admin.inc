@@ -130,7 +130,15 @@ function entity_forum_admin_replies() {
   // filters stay adjustable at admin/structure/views. The content
   // column's HTML is stripped in entity_forum_views_pre_render().
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
-  return views_embed_view('forum_replies_admin', 'default');
+  $view = views_get_view('forum_replies_admin');
+  if (!$view) {
+    return t('The forum_replies_admin view is missing or disabled.');
+  }
+  // The view has no page display of its own, so anchor generated URLs
+  // (notably the exposed-filter form action) to this tab — without
+  // this the Apply button submits to the front page.
+  $view->override_url = current_path();
+  return $view->preview('default');
 }
 
 /**
