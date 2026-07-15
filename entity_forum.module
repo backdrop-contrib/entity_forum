@@ -512,6 +512,16 @@ function entity_forum_menu() {
     'delivery callback' => 'entity_forum_htmx_deliver',
     'file' => 'entity_forum.pages.inc',
   );
+  // Author self-service close/reopen ("mark as sold") — a token-protected
+  // action link, offered only in forums with the author_close setting.
+  $items['topic/%entity_forum_topic/toggle-closed'] = array(
+    'page callback' => 'entity_forum_topic_toggle_closed',
+    'page arguments' => array(1),
+    'access callback' => 'entity_forum_topic_author_close_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.pages.inc',
+  );
 
   // Autocomplete for attaching a topic to content on the admin topic
   // form ("Title [nid:N]" pattern, node_access-respecting).
@@ -1123,6 +1133,187 @@ function entity_forum_reply_create_access($topic) {
     && entity_forum_topic_view_access($topic)
     && user_access('create entity forum reply')
     && entity_forum_user_posting_status() !== ENTITY_FORUM_POSTING_SUSPENDED;
+}
+
+/**
+ * Menu access callback: may the current user close/reopen this topic?
+ *
+ * Author self-service closing is opt-in per forum (the author_close
+ * setting) — built for classified-ad forums, so a seller can mark an ad
+ * sold and reopen it if it falls through. Only the author of a live,
+ * published topic qualifies; unpublished (scheduled) and held topics
+ * belong to the scheduler / the moderators.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic to close or reopen.
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   Whether access is granted.
+ */
+function entity_forum_topic_author_close_access($topic, $account = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  if ($account->uid <= 0 || (int) $topic->author_uid !== (int) $account->uid) {
+    return FALSE;
+  }
+  if (!$topic->status || !empty($topic->pending)) {
+    return FALSE;
+  }
+  $forum = entity_load('entity_forum_forum', $topic->forum_id);
+  return $forum && !empty($forum->author_close)
+    && user_access('create entity forum topic', $account)
+    && entity_forum_topic_view_access($topic);
+}
+
+/**
+ * Returns the topic scheduling configuration.
+ *
+ * Scheduling (built for classified ads) publishes topics when their
+ * start date arrives and closes + delists them when their end passes.
+ * The dates come from site-configured date fields on the topic bundle
+ * (see the "Topic scheduling" section of the forum settings).
+ *
+ * @return array
+ *   Keys:
+ *   - start_field / end_field: topic date field names, or '' when unset.
+ *   - duration: days a topic stays open after its start date when no
+ *     end date is given (0 = no automatic end).
+ */
+function entity_forum_schedule_settings() {
+  $config = config('entity_forum.settings');
+  return array(
+    'start_field' => (string) $config->get('schedule_start_field'),
+    'end_field' => (string) $config->get('schedule_end_field'),
+    'duration' => (int) $config->get('schedule_duration'),
+  );
+}
+
+/**
+ * Reads a date field value from a topic as a Unix timestamp.
+ *
+ * Handles all three date field types: datestamp values are timestamps
+ * already; datetime and date (ISO) strings are interpreted as UTC,
+ * matching how the date module stores them.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic carrying the field.
+ * @param string $field_name
+ *   The date field to read ('' returns NULL).
+ *
+ * @return int|null
+ *   The timestamp, or NULL when the field is unset or empty.
+ */
+function entity_forum_schedule_field_time($topic, $field_name) {
+  if ($field_name === '' || empty($topic->{$field_name})) {
+    return NULL;
+  }
+  $items = field_get_items('entity_forum_topic', $topic, $field_name);
+  if (empty($items[0]['value'])) {
+    return NULL;
+  }
+  $value = $items[0]['value'];
+  if (is_numeric($value)) {
+    return (int) $value;
+  }
+  $timestamp = strtotime($value . ' UTC');
+  return $timestamp === FALSE ? NULL : $timestamp;
+}
+
+/**
+ * Computes a topic's effective publication window.
+ *
+ * The window ends at the end date when one is set — date-only values
+ * run to the end of that day, so "visible until that day" is inclusive
+ * — otherwise at start + the configured default duration. Either bound
+ * may be missing.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic to inspect.
+ *
+ * @return array
+ *   'start' and 'end' Unix timestamps; each NULL when unbounded.
+ */
+function entity_forum_topic_schedule($topic) {
+  $settings = entity_forum_schedule_settings();
+  $start = entity_forum_schedule_field_time($topic, $settings['start_field']);
+  $end = entity_forum_schedule_field_time($topic, $settings['end_field']);
+  if ($end !== NULL && gmdate('His', $end) === '000000') {
+    $end += 86399;
+  }
+  if ($end === NULL && $start !== NULL && $settings['duration'] > 0) {
+    $end = $start + $settings['duration'] * 86400;
+  }
+  return array('start' => $start, 'end' => $end);
+}
+
+/**
+ * Implements hook_cron().
+ *
+ * Runs the topic scheduling transitions: topics whose start date
+ * arrived since the last run are published; topics whose effective end
+ * passed are closed and dropped from public lists (normal listing →
+ * unlisted, so direct links keep working). Each transition fires
+ * exactly once — only dates falling inside the (last run, now] window
+ * are acted on — so later manual changes by a moderator or the author
+ * are never overridden by cron re-running.
+ */
+function entity_forum_cron() {
+  $settings = entity_forum_schedule_settings();
+  if ($settings['start_field'] === '' && $settings['end_field'] === '') {
+    return;
+  }
+  $last_run = (int) state_get('entity_forum_schedule_last_run', 0);
+  $now = REQUEST_TIME;
+
+  // Candidates: any topic carrying a value in a schedule field. Ads are
+  // a small slice of all topics, so loading them in batches is cheap.
+  $topic_ids = array();
+  foreach (array($settings['start_field'], $settings['end_field']) as $field_name) {
+    if ($field_name === '' || !field_info_field($field_name)) {
+      continue;
+    }
+    $result = db_query('SELECT entity_id FROM {field_data_' . db_escape_table($field_name) . '} WHERE entity_type = :type AND deleted = 0', array(
+      ':type' => 'entity_forum_topic',
+    ));
+    foreach ($result as $row) {
+      $topic_ids[(int) $row->entity_id] = (int) $row->entity_id;
+    }
+  }
+
+  foreach (array_chunk($topic_ids, 50) as $chunk) {
+    foreach (entity_load_multiple('entity_forum_topic', $chunk) as $topic) {
+      $schedule = entity_forum_topic_schedule($topic);
+      $changed = FALSE;
+      if ($schedule['start'] !== NULL && !$topic->status
+        && $schedule['start'] > $last_run && $schedule['start'] <= $now) {
+        $topic->status = 1;
+        $changed = TRUE;
+        watchdog('entity_forum', 'Published scheduled topic %title (start date reached).', array('%title' => $topic->title));
+      }
+      if ($schedule['end'] !== NULL && $schedule['end'] > $last_run && $schedule['end'] <= $now) {
+        $expired = FALSE;
+        if (!$topic->closed) {
+          $topic->closed = 1;
+          $expired = TRUE;
+        }
+        if ($topic->listing === ENTITY_FORUM_LISTING_NORMAL) {
+          $topic->listing = ENTITY_FORUM_LISTING_UNLISTED;
+          $expired = TRUE;
+        }
+        if ($expired) {
+          $changed = TRUE;
+          watchdog('entity_forum', 'Closed expired topic %title (end date passed).', array('%title' => $topic->title));
+        }
+      }
+      if ($changed) {
+        $topic->save();
+      }
+    }
+  }
+  state_set('entity_forum_schedule_last_run', $now);
 }
 
 /**
@@ -1848,6 +2039,69 @@ function entity_forum_entity_load($entities, $type) {
 }
 
 /**
+ * Implements hook_field_access().
+ *
+ * Enforces the per-instance "Restrict to forums" setting (added to the
+ * Field UI instance form by
+ * entity_forum_form_field_ui_field_edit_form_alter()): a restricted
+ * field is editable and visible only on posts in the selected forums or
+ * their sub-forums. This lets the single-bundle topic/reply types carry
+ * forum-specific fields — classified-ad price and dates — without the
+ * widgets appearing on posts in every other forum.
+ */
+function entity_forum_field_access($op, $field, $entity_type, $entity = NULL, $account = NULL) {
+  if (($op !== 'edit' && $op !== 'view')
+    || ($entity_type !== 'entity_forum_topic' && $entity_type !== 'entity_forum_reply')
+    || !isset($entity->forum_id)) {
+    return TRUE;
+  }
+  // Single-bundle entity types: the bundle name is the entity type.
+  $instance = field_info_instance($entity_type, $field['field_name'], $entity_type);
+  if (!$instance || empty($instance['settings']['entity_forum_forums'])) {
+    return TRUE;
+  }
+  $allowed = array_filter($instance['settings']['entity_forum_forums']);
+  if (!$allowed) {
+    return TRUE;
+  }
+  $forum_id = (int) $entity->forum_id;
+  if (isset($allowed[$forum_id])) {
+    return TRUE;
+  }
+  // A field restricted to a parent forum covers its whole sub-tree.
+  foreach (entity_forum_forum_ancestors($forum_id) as $ancestor_id) {
+    if (isset($allowed[$ancestor_id])) {
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter() for field_ui_field_edit_form().
+ *
+ * Adds the "Restrict to forums" checkboxes to field instances on topics
+ * and replies. Field UI saves the whole $form['instance'] container, so
+ * the value persists as an instance setting without a submit handler;
+ * entity_forum_field_access() enforces it.
+ */
+function entity_forum_form_field_ui_field_edit_form_alter(&$form, &$form_state) {
+  $instance = $form['#instance'];
+  if (!isset($form['instance'])
+    || !in_array($instance['entity_type'], array('entity_forum_topic', 'entity_forum_reply'), TRUE)) {
+    return;
+  }
+  module_load_include('inc', 'entity_forum', 'entity_forum.admin');
+  $form['instance']['settings']['entity_forum_forums'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Restrict to forums'),
+    '#options' => entity_forum_forum_options(),
+    '#default_value' => empty($instance['settings']['entity_forum_forums']) ? array() : array_filter($instance['settings']['entity_forum_forums']),
+    '#description' => t('Show this field only on posts in the ticked forums and their sub-forums. Leave every box unticked to show it in all forums.'),
+  );
+}
+
+/**
  * Implements hook_entity_presave().
  *
  * Snapshots the author display name onto every forum entity at save time,
@@ -1875,6 +2129,17 @@ function entity_forum_entity_presave($entity, $type) {
   if (in_array($type, array('entity_forum_topic', 'entity_forum_reply'), TRUE)
     && empty($entity->pending) && !empty($entity->pending_reason)) {
     $entity->pending_reason = '';
+  }
+
+  // Topic scheduling (classified ads): a start date in the future keeps
+  // the topic unpublished until cron publishes it. Scheduling owns the
+  // status column while moderation holds own the listing column, so the
+  // two mechanisms can never release each other's hidden topics.
+  if ($type === 'entity_forum_topic') {
+    $schedule = entity_forum_topic_schedule($entity);
+    if ($schedule['start'] !== NULL && $schedule['start'] > REQUEST_TIME) {
+      $entity->status = 0;
+    }
   }
 }
 
@@ -2403,5 +2668,23 @@ function entity_forum_posting_name_save($account, $posting_name) {
       ->condition('author_uid', $account->uid)
       ->execute();
     entity_get_controller($table)->resetCache();
+  }
+}
+
+
+/**
+ * Implements hook_views_pre_render().
+ * for some reason the strip html Views filter doesn't work on the admin replies view, so we do it here instead.
+ */
+function entity_forum_views_pre_render(&$view) {
+  // Target our administrative replies view
+  if ($view->name == 'forum_replies_admin') {
+    foreach ($view->result as $row) {
+      if (isset($row->entity_forum_reply_content)) {
+        // Just strip the tags and overwrite the property to see if it updates
+        $raw_html = $row->entity_forum_reply_content;
+        $row->entity_forum_reply_content = strip_tags($raw_html);
+      }
+    }
   }
 }

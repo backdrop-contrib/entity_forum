@@ -84,6 +84,13 @@ class EntityForumForum extends Entity {
   public $author_name = '';
 
   /**
+   * Whether topic authors may close/reopen their own topics here
+   * (classified ads: mark as sold).
+   * @var int
+   */
+  public $author_close = 0;
+
+  /**
    * Constructs a forum, filling runtime defaults for new entities.
    *
    * @param array $values

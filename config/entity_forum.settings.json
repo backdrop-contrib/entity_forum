@@ -3,5 +3,8 @@
     "avatar_default_fid": 0,
     "htmx_cdn": 0,
     "htmx_cdn_url": "https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js",
-    "node_types": {}
+    "node_types": {},
+    "schedule_start_field": "",
+    "schedule_end_field": "",
+    "schedule_duration": 0
 }

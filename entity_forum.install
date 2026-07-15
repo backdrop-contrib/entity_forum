@@ -194,6 +194,13 @@ function entity_forum_schema() {
         'default' => '',
         'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
       ),
+      'author_close' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Whether topic authors may close/reopen their own topics in this forum (classified ads: mark as sold).',
+      ),
     ),
     'primary key' => array('forum_id'),
     'indexes' => array(
@@ -773,6 +780,26 @@ function entity_forum_update_1006() {
       'default' => 0,
       'description' => 'The {node}.nid this topic is attached to as its discussion thread (0 = a normal forum topic).',
     ), array('indexes' => array('node_id' => array('node_id'))));
+  }
+  // Rebuild the schema cache so entity saves see the new column at once.
+  backdrop_get_complete_schema(TRUE);
+}
+
+/**
+ * Adds the author_close column to {entity_forum_forum}.
+ *
+ * Forums with author_close enabled let topic authors close and reopen
+ * their own topics — the classified-ads "mark as sold" flow.
+ */
+function entity_forum_update_1007() {
+  if (!db_field_exists('entity_forum_forum', 'author_close')) {
+    db_add_field('entity_forum_forum', 'author_close', array(
+      'type' => 'int',
+      'size' => 'tiny',
+      'not null' => TRUE,
+      'default' => 0,
+      'description' => 'Whether topic authors may close/reopen their own topics in this forum (classified ads: mark as sold).',
+    ));
   }
   // Rebuild the schema cache so entity saves see the new column at once.
   backdrop_get_complete_schema(TRUE);

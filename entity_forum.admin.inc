@@ -12,6 +12,8 @@
  *   Rendered table of forums.
  */
 function entity_forum_admin_forums() {
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
+
   $header = array(
     array('data' => t('Title'), 'field' => 'title', 'sort' => 'asc'),
     t('Parent'),
@@ -34,10 +36,18 @@ function entity_forum_admin_forums() {
     $rows[] = array(
       l($forum->title, 'forum/' . $forum->forum_id),
       $forum->parent_id ? check_plain($forums_by_id[$forum->parent_id] ?? t('Missing (@id)', array('@id' => $forum->parent_id))) : t('- None -'),
-      check_plain($forum->visibility),
-      entity_forum_forum_topic_count($forum->forum_id),
-      $forum->status ? t('Published') : t('Unpublished'),
-      _entity_forum_admin_operations('forum', $forum->forum_id),
+
+      //'<span class="forum-visibility">' . check_plain($forum->visibility) . '</span>',
+      ($forum->visibility === 'public') ?
+        '<span class="forum-public">' . t('Public') . '</span>' :
+        '<span class="forum-private">' . t('Private') . '</span>',
+
+      '<div class="forum-id">' . entity_forum_forum_topic_count($forum->forum_id) . '</div>',
+
+      $forum->status ? '<span class="forum-published">' . t('Published') . '</span>' :
+        '<span class="forum-unpublished">' . t('Unpublished') . '</span>',
+
+        _entity_forum_admin_operations('forum', $forum->forum_id),
     );
   }
 
@@ -254,6 +264,12 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#title' => t('Published'),
     '#default_value' => $forum->status,
   );
+  $form['author_close'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Authors may close and reopen their own topics'),
+    '#description' => t('Adds a Close/Reopen link to a topic for its author — for classified-ad forums, so a seller can mark an ad sold. Applies to this forum only, not its sub-forums.'),
+    '#default_value' => !empty($forum->author_close),
+  );
 
   // Widgets for any fields a site has attached to forums.
   field_attach_form('entity_forum_forum', $forum, $form, $form_state);
@@ -288,6 +304,7 @@ function entity_forum_forum_form_submit($form, &$form_state) {
   $forum->visibility = $values['visibility'];
   $forum->weight = (int) $values['weight'];
   $forum->status = (int) $values['status'];
+  $forum->author_close = (int) !empty($values['author_close']);
   $forum->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_forum', $forum, $form, $form_state);
   $forum->save();
@@ -702,6 +719,44 @@ function entity_forum_settings_form($form, &$form_state) {
     );
   }
 
+  // Topic scheduling: publish on a start date, close + delist after an
+  // end date — built for classified-ad forums.
+  $form['scheduling'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Topic scheduling (classified ads)'),
+    '#description' => t('Publish topics when a start date arrives and close them (dropping them from topic lists) after an end date, using date fields attached to topics — add the fields at <a href="@fields">the topic field settings</a> and use each field\'s "Restrict to forums" option to scope them to your classifieds forums. Cron runs the transitions.', array(
+      '@fields' => url('admin/structure/entity-forum'),
+    )),
+  );
+  $date_field_options = array('' => t('- Disabled -'));
+  foreach (field_info_instances('entity_forum_topic', 'entity_forum_topic') as $field_name => $instance) {
+    $field_info = field_info_field($field_name);
+    if (in_array($field_info['type'], array('date', 'datetime', 'datestamp'), TRUE)) {
+      $date_field_options[$field_name] = t('@label (@name)', array('@label' => $instance['label'], '@name' => $field_name));
+    }
+  }
+  $form['scheduling']['schedule_start_field'] = array(
+    '#type' => 'select',
+    '#title' => t('Start date field'),
+    '#options' => $date_field_options,
+    '#default_value' => (string) $config->get('schedule_start_field'),
+    '#description' => t('A topic with a future start date stays unpublished (visible only to its author and moderators) until the date arrives.'),
+  );
+  $form['scheduling']['schedule_end_field'] = array(
+    '#type' => 'select',
+    '#title' => t('End date field'),
+    '#options' => $date_field_options,
+    '#default_value' => (string) $config->get('schedule_end_field'),
+    '#description' => t('The topic stays visible through its end date, then is closed and dropped from topic lists (direct links keep working).'),
+  );
+  $form['scheduling']['schedule_duration'] = array(
+    '#type' => 'number',
+    '#title' => t('Default lifetime (days)'),
+    '#min' => 0,
+    '#default_value' => (int) $config->get('schedule_duration'),
+    '#description' => t('Used when a topic has a start date but no end date: it closes this many days after the start. 0 means no automatic end.'),
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -764,6 +819,11 @@ function entity_forum_settings_form_submit($form, &$form_state) {
     }
   }
   $config->set('node_types', $node_types_map);
+
+  // Topic scheduling (classified ads).
+  $config->set('schedule_start_field', (string) $form_state['values']['schedule_start_field']);
+  $config->set('schedule_end_field', (string) $form_state['values']['schedule_end_field']);
+  $config->set('schedule_duration', max(0, (int) $form_state['values']['schedule_duration']));
 
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));

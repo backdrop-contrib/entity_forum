@@ -224,10 +224,21 @@ function entity_forum_topic_page($topic) {
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
 
   if (!$topic->status) {
-    backdrop_set_message(t('This topic is unpublished and only visible to administrators.'), 'warning');
-    if (!user_access('administer entity forum topic')) {
+    // Unpublished topics are readable by moderators/admins and — so a
+    // member can review their own scheduled classified ad — the author.
+    $is_author = $GLOBALS['user']->uid > 0 && (int) $topic->author_uid === (int) $GLOBALS['user']->uid;
+    if (!$is_author && !entity_forum_user_is_moderator() && !user_access('administer entity forum topic')) {
       backdrop_access_denied();
       backdrop_exit();
+    }
+    $schedule = entity_forum_topic_schedule($topic);
+    if ($schedule['start'] !== NULL && $schedule['start'] > REQUEST_TIME) {
+      backdrop_set_message(t('This topic is scheduled to be published on @date; until then it is only visible to its author and the moderators.', array(
+        '@date' => format_date($schedule['start'], 'medium'),
+      )), 'warning');
+    }
+    else {
+      backdrop_set_message(t('This topic is unpublished and not visible to other members.'), 'warning');
     }
   }
 
@@ -1171,6 +1182,15 @@ function _entity_forum_post_links($type, $entity_or_row, $topic = NULL) {
       'attributes' => _entity_forum_modal_link_attributes(url($report_path)),
     );
   }
+  // Close/reopen for the topic author ("mark as sold") in forums that
+  // opted in via the author_close setting.
+  if ($type === 'topic' && $topic && entity_forum_topic_author_close_access($topic)) {
+    $links['toggle_closed'] = array(
+      'title' => $topic->closed ? t('Reopen topic') : t('Close topic'),
+      'href' => 'topic/' . $id . '/toggle-closed',
+      'query' => array('token' => backdrop_get_token('entity_forum_author_close:' . $id)),
+    );
+  }
   if ($access_callback('update', $entity_or_row)) {
     $links['edit'] = array('title' => t('Edit'), 'href' => "admin/content/entity-forum/$type/$id/edit");
   }
@@ -1184,6 +1204,37 @@ function _entity_forum_post_links($type, $entity_or_row, $topic = NULL) {
     'links' => $links,
     'attributes' => array('class' => array('links', 'inline')),
   ));
+}
+
+/**
+ * Page callback: the topic author closes or reopens their own topic.
+ *
+ * The classified-ads "mark as sold" flow: offered (and access granted —
+ * see entity_forum_topic_author_close_access()) only to the author, in
+ * forums with the author_close setting. CSRF-protected by a token
+ * seeded with the topic ID.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic to close or reopen.
+ *
+ * @return int|void
+ *   MENU_ACCESS_DENIED on a bad token; otherwise redirects back to the
+ *   topic (or its node page for node-attached discussions).
+ */
+function entity_forum_topic_toggle_closed($topic) {
+  if (!isset($_GET['token']) || !backdrop_valid_token($_GET['token'], 'entity_forum_author_close:' . $topic->id())) {
+    return MENU_ACCESS_DENIED;
+  }
+  $topic->closed = $topic->closed ? 0 : 1;
+  $topic->save();
+  backdrop_set_message($topic->closed
+    ? t('Your topic %title is now closed to new replies.', array('%title' => $topic->title))
+    : t('Your topic %title has been reopened.', array('%title' => $topic->title)));
+  watchdog('entity_forum', 'Author @action topic @id.', array(
+    '@action' => $topic->closed ? 'closed' : 'reopened',
+    '@id' => $topic->id(),
+  ), WATCHDOG_NOTICE);
+  backdrop_goto(entity_forum_topic_discussion_path($topic));
 }
 
 /**
@@ -1263,6 +1314,17 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   if ($held) {
     backdrop_set_message(t('Thank you — your topic %title has been received and will appear once a moderator has approved it.', array('%title' => $topic->title)));
     $form_state['redirect'] = 'forum/' . $topic->forum_id;
+  }
+  elseif (!$topic->status) {
+    // Scheduled (presave unpublished it: start date in the future). The
+    // author can still view their own topic page, which repeats the
+    // scheduling notice.
+    $schedule = entity_forum_topic_schedule($topic);
+    backdrop_set_message(t('Your topic %title has been saved and is scheduled to be published on @date.', array(
+      '%title' => $topic->title,
+      '@date' => $schedule['start'] !== NULL ? format_date($schedule['start'], 'medium') : format_date(REQUEST_TIME, 'medium'),
+    )));
+    $form_state['redirect'] = 'topic/' . $topic->id();
   }
   else {
     backdrop_set_message(t('Your topic %title has been posted.', array('%title' => $topic->title)));
