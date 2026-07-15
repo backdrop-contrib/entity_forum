@@ -342,9 +342,8 @@ function entity_forum_topic_page($topic) {
   // Modal plumbing: htmx + the dialog the Reply links target. Only
   // loaded when the viewer can actually reply.
   if (entity_forum_reply_create_access($topic)) {
-    $module_path = backdrop_get_path('module', 'entity_forum');
-    backdrop_add_js($module_path . '/js/htmx.min.js');
-    backdrop_add_js($module_path . '/js/entity_forum.js');
+    entity_forum_add_htmx();
+    backdrop_add_js(backdrop_get_path('module', 'entity_forum') . '/js/entity_forum.js');
     $build['dialog'] = array(
       '#markup' => '<dialog id="entity-forum-dialog" class="entity-forum-dialog"><button type="button" class="entity-forum-dialog-close" aria-label="' . t('Close') . '">&times;</button><div id="entity-forum-dialog-content"></div></dialog>',
       '#weight' => 100,

@@ -611,12 +611,52 @@ function entity_forum_settings_form($form, &$form_state) {
     ),
   );
 
+  $form['htmx'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('htmx library'),
+    '#description' => t('The forum uses the <a href="@htmx">htmx</a> library for its modal reply form. The module ships its own copy; loading from a CDN instead lets the site use a newer htmx release without waiting for a module update.', array(
+      '@htmx' => 'https://htmx.org/',
+    )),
+  );
+  $form['htmx']['htmx_cdn'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Load htmx from a CDN'),
+    '#default_value' => (int) $config->get('htmx_cdn'),
+    '#description' => t("When unchecked, the module's bundled copy is used."),
+  );
+  $form['htmx']['htmx_cdn_url'] = array(
+    '#type' => 'textfield',
+    '#title' => t('CDN URL for htmx'),
+    '#default_value' => (string) $config->get('htmx_cdn_url'),
+    '#description' => t('For example %url.', array('%url' => 'https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js')),
+    '#maxlength' => 255,
+    '#states' => array(
+      'visible' => array(':input[name="htmx_cdn"]' => array('checked' => TRUE)),
+    ),
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Save configuration'),
   );
   return $form;
+}
+
+/**
+ * Validation for entity_forum_settings_form(): the htmx CDN URL.
+ *
+ * The URL becomes a script tag on forum pages, so it must be an
+ * absolute https URL when CDN loading is enabled.
+ */
+function entity_forum_settings_form_validate($form, &$form_state) {
+  if (!empty($form_state['values']['htmx_cdn'])) {
+    $url = trim($form_state['values']['htmx_cdn_url']);
+    if ($url === '' || strpos($url, 'https://') !== 0 || !valid_url($url, TRUE)) {
+      form_set_error('htmx_cdn_url', t('Enter an absolute https:// URL for the htmx CDN, or untick the CDN option to use the bundled copy.'));
+    }
+    $form_state['values']['htmx_cdn_url'] = $url;
+  }
 }
 
 /**
@@ -645,6 +685,8 @@ function entity_forum_settings_form_submit($form, &$form_state) {
   }
 
   $config->set('avatar_default_fid', $fid);
+  $config->set('htmx_cdn', (int) $form_state['values']['htmx_cdn']);
+  $config->set('htmx_cdn_url', trim($form_state['values']['htmx_cdn_url']));
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));
 }

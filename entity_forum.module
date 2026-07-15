@@ -940,6 +940,25 @@ function entity_forum_htmx_deliver($page_callback_result) {
 }
 
 /**
+ * Adds the htmx library to the page.
+ *
+ * Loads the module's bundled copy (js/htmx.min.js) by default, or an
+ * external CDN URL when the site owner has enabled that in the forum
+ * settings — the escape hatch for when the bundled copy ages between
+ * module releases. Same pattern as the gsap_scrolltrigger module.
+ */
+function entity_forum_add_htmx() {
+  $config = config('entity_forum.settings');
+  $url = (string) $config->get('htmx_cdn_url');
+  if ($config->get('htmx_cdn') && $url !== '') {
+    backdrop_add_js($url, 'external');
+  }
+  else {
+    backdrop_add_js(backdrop_get_path('module', 'entity_forum') . '/js/htmx.min.js');
+  }
+}
+
+/**
  * Returns the htmx attributes that open a URL in the forum modal.
  *
  * Attached to "Reply" (and later "Report") links: htmx fetches the URL
