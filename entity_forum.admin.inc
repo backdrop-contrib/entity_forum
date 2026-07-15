@@ -380,7 +380,9 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
     '#default_value' => (string) $topic->content,
     '#format' => $topic->format,
     '#rows' => 10,
-    '#required' => TRUE,
+    // Node-attached discussion topics have an empty body — the node is
+    // the opening post — so the body must stay optional for them.
+    '#required' => empty($topic->node_id),
   );
   $form['forum_id'] = array(
     '#type' => 'select',
@@ -412,6 +414,20 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
     '#default_value' => $topic->status,
   );
 
+  $node_default = '';
+  if (!empty($topic->node_id)) {
+    $node_title = db_query('SELECT title FROM {node} WHERE nid = :nid', array(':nid' => $topic->node_id))->fetchField();
+    $node_default = ($node_title !== FALSE ? $node_title : t('Unknown content')) . ' [nid:' . $topic->node_id . ']';
+  }
+  $form['node_link'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Attached content'),
+    '#autocomplete_path' => 'entity-forum/node-autocomplete',
+    '#default_value' => $node_default,
+    '#maxlength' => 300,
+    '#description' => t('Attach this topic to a piece of content as its discussion thread, shown below the content (search by title). Usually combined with "Not shown in the forum topic list". Leave empty for a normal forum topic.'),
+  );
+
   // Widgets for any fields a site has attached to topics.
   field_attach_form('entity_forum_topic', $topic, $form, $form_state);
 
@@ -425,9 +441,37 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
 }
 
 /**
- * Validation for entity_forum_topic_form(): attached fields.
+ * Validation for entity_forum_topic_form(): attached content + fields.
+ *
+ * The "Attached content" value must come from the autocomplete
+ * ("Title [nid:N]"), reference an existing node, and not collide with
+ * another topic already attached to the same node (one discussion per
+ * node). The parsed nid is stashed for the submit handler.
  */
 function entity_forum_topic_form_validate($form, &$form_state) {
+  $value = trim($form_state['values']['node_link']);
+  $node_id = 0;
+  if ($value !== '') {
+    if (!preg_match('/\[nid:(\d+)\]\s*$/', $value, $matches)) {
+      form_set_error('node_link', t('Pick the attached content from the autocomplete suggestions (the value must end in "[nid:N]"), or leave the field empty.'));
+    }
+    else {
+      $node_id = (int) $matches[1];
+      if (!db_query('SELECT 1 FROM {node} WHERE nid = :nid', array(':nid' => $node_id))->fetchField()) {
+        form_set_error('node_link', t('The referenced content (nid @nid) does not exist.', array('@nid' => $node_id)));
+      }
+      else {
+        $existing = db_query('SELECT topic_id FROM {entity_forum_topic} WHERE node_id = :nid AND topic_id <> :self', array(
+          ':nid' => $node_id,
+          ':self' => (int) ($form_state['topic']->id() ? $form_state['topic']->id() : 0),
+        ))->fetchField();
+        if ($existing) {
+          form_set_error('node_link', t('Topic @id is already attached to that content — a node has one discussion thread.', array('@id' => $existing)));
+        }
+      }
+    }
+  }
+  $form_state['entity_forum_node_id'] = $node_id;
   field_attach_form_validate('entity_forum_topic', $form_state['topic'], $form, $form_state);
 }
 
@@ -447,6 +491,7 @@ function entity_forum_topic_form_submit($form, &$form_state) {
   $topic->closed = (int) $values['closed'];
   $topic->listing = $values['listing'];
   $topic->status = (int) $values['status'];
+  $topic->node_id = (int) $form_state['entity_forum_node_id'];
   $topic->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_topic', $topic, $form, $form_state);
   $topic->save();
@@ -635,6 +680,28 @@ function entity_forum_settings_form($form, &$form_state) {
     ),
   );
 
+  // Content discussions: the comments replacement. Each enabled content
+  // type gets its discussion topics find-or-created (unlisted) in the
+  // chosen forum and rendered below the node.
+  $form['node_discussions'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Content discussions (comments replacement)'),
+    '#description' => t('Show a forum-powered discussion below content instead of core comments. A hidden ("not listed") topic is created automatically in the chosen forum the first time the content is viewed; replies appear below the content with the same reply/report tools as the forum. Disable core comments on these content types yourself.'),
+  );
+  $forum_options = array(0 => t('- Disabled -')) + entity_forum_forum_options();
+  $node_types_map = config_get('entity_forum.settings', 'node_types');
+  if (!is_array($node_types_map)) {
+    $node_types_map = array();
+  }
+  foreach (node_type_get_types() as $node_type) {
+    $form['node_discussions']['node_type_' . $node_type->type] = array(
+      '#type' => 'select',
+      '#title' => t('@name discussions forum', array('@name' => $node_type->name)),
+      '#options' => $forum_options,
+      '#default_value' => isset($node_types_map[$node_type->type]) ? (int) $node_types_map[$node_type->type] : 0,
+    );
+  }
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -687,8 +754,49 @@ function entity_forum_settings_form_submit($form, &$form_state) {
   $config->set('avatar_default_fid', $fid);
   $config->set('htmx_cdn', (int) $form_state['values']['htmx_cdn']);
   $config->set('htmx_cdn_url', trim($form_state['values']['htmx_cdn_url']));
+
+  // Content discussions: store only the enabled types (type => forum).
+  $node_types_map = array();
+  foreach (node_type_get_types() as $node_type) {
+    $key = 'node_type_' . $node_type->type;
+    if (!empty($form_state['values'][$key])) {
+      $node_types_map[$node_type->type] = (int) $form_state['values'][$key];
+    }
+  }
+  $config->set('node_types', $node_types_map);
+
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));
+}
+
+/**
+ * Page callback: autocomplete for the "Attached content" topic field.
+ *
+ * Matches node titles ("Title [nid:N]" results); the query carries the
+ * node_access tag so the suggestions respect content access just like
+ * core reference autocompletes.
+ *
+ * @param string $string
+ *   The typed search string.
+ *
+ * @return array
+ *   Matches, displayed as JSON by delivery callback
+ *   backdrop_json_deliver().
+ */
+function entity_forum_node_autocomplete($string = '') {
+  $matches = array();
+  if ($string !== '') {
+    $query = db_select('node', 'n')
+      ->fields('n', array('nid', 'title'))
+      ->condition('n.title', '%' . db_like($string) . '%', 'LIKE')
+      ->orderBy('n.title')
+      ->range(0, 10)
+      ->addTag('node_access');
+    foreach ($query->execute() as $node) {
+      $matches[$node->title . ' [nid:' . $node->nid . ']'] = check_plain($node->title) . ' <small>[nid:' . $node->nid . ']</small>';
+    }
+  }
+  return $matches;
 }
 
 /**

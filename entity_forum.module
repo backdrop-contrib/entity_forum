@@ -513,6 +513,16 @@ function entity_forum_menu() {
     'file' => 'entity_forum.pages.inc',
   );
 
+  // Autocomplete for attaching a topic to content on the admin topic
+  // form ("Title [nid:N]" pattern, node_access-respecting).
+  $items['entity-forum/node-autocomplete'] = array(
+    'page callback' => 'entity_forum_node_autocomplete',
+    'delivery callback' => 'backdrop_json_deliver',
+    'access arguments' => array('administer entity forum topic'),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.admin.inc',
+  );
+
   // Report form: the no-JS fallback page and the htmx modal source, like
   // the reply form (the delivery callback strips the chrome for
   // HX-Request fetches). URL parts: forum-report/{topic|reply}/{id}.
@@ -1116,6 +1126,135 @@ function entity_forum_reply_create_access($topic) {
 }
 
 /**
+ * Returns the discussion forum configured for a content type.
+ *
+ * Content discussions (the comments replacement) are opt-in per content
+ * type in the forum settings: each enabled type maps to the forum its
+ * discussion topics are created in.
+ *
+ * @param string $node_type
+ *   The content type machine name.
+ *
+ * @return int
+ *   The forum_id discussions for this type belong to, or 0 when the
+ *   type has discussions disabled.
+ */
+function entity_forum_node_discussion_forum_id($node_type) {
+  $map = config_get('entity_forum.settings', 'node_types');
+  return isset($map[$node_type]) ? (int) $map[$node_type] : 0;
+}
+
+/**
+ * Returns the topic attached to a node as its discussion thread.
+ *
+ * With $create, a missing topic is created on the spot (find-or-create):
+ * unlisted (never in forum topic lists), published, titled after the
+ * node, authored by the node author, with an empty body — the node
+ * itself is the "opening post". Creation requires the node's content
+ * type to have discussions enabled and the configured forum to exist.
+ *
+ * @param object $node
+ *   The node.
+ * @param bool $create
+ *   Whether to create the topic when none exists yet.
+ *
+ * @return EntityForumTopic|false
+ *   The discussion topic, or FALSE when there is none (and none was
+ *   created).
+ */
+function entity_forum_node_topic($node, $create = FALSE) {
+  $topic_id = (int) db_query('SELECT topic_id FROM {entity_forum_topic} WHERE node_id = :nid ORDER BY topic_id LIMIT 1', array(
+    ':nid' => $node->nid,
+  ))->fetchField();
+  if ($topic_id) {
+    $topic = entity_load('entity_forum_topic', $topic_id);
+    return $topic ? $topic : FALSE;
+  }
+  if (!$create) {
+    return FALSE;
+  }
+  $forum_id = entity_forum_node_discussion_forum_id($node->type);
+  if (!$forum_id || !entity_load('entity_forum_forum', $forum_id)) {
+    return FALSE;
+  }
+  $topic = entity_create('entity_forum_topic', array(
+    'title' => $node->title,
+    'content' => '',
+    'forum_id' => $forum_id,
+    'node_id' => (int) $node->nid,
+    'listing' => ENTITY_FORUM_LISTING_UNLISTED,
+    'author_uid' => (int) $node->uid,
+  ));
+  $topic->save();
+  watchdog('entity_forum', 'Created discussion topic @tid for node @nid (@type).', array(
+    '@tid' => $topic->id(),
+    '@nid' => $node->nid,
+    '@type' => $node->type,
+  ), WATCHDOG_NOTICE);
+  return $topic;
+}
+
+/**
+ * Returns the path where a topic's discussion is read.
+ *
+ * Node-attached topics live on their node's page (the comments
+ * replacement), so links and after-post redirects go there; normal
+ * topics go to their own page.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic.
+ *
+ * @return string
+ *   An internal path.
+ */
+function entity_forum_topic_discussion_path($topic) {
+  return !empty($topic->node_id) ? 'node/' . $topic->node_id : 'topic/' . $topic->id();
+}
+
+/**
+ * Implements hook_node_view().
+ *
+ * Renders the discussion thread (threaded replies + reply/report links)
+ * below nodes of discussion-enabled content types — the comments
+ * replacement. The topic is find-or-created on first full view of a
+ * published node; viewers only see the section when they may view the
+ * topic (the configured forum's visibility applies).
+ */
+function entity_forum_node_view($node, $view_mode, $langcode) {
+  if ($view_mode !== 'full' || empty($node->status) || !empty($node->in_preview)) {
+    return;
+  }
+  if (!entity_forum_node_discussion_forum_id($node->type)) {
+    return;
+  }
+  $topic = entity_forum_node_topic($node, TRUE);
+  if (!$topic || !entity_forum_topic_view_access($topic)) {
+    return;
+  }
+  module_load_include('inc', 'entity_forum', 'entity_forum.pages');
+  $node->content['entity_forum_discussion'] = entity_forum_node_discussion_build($topic);
+}
+
+/**
+ * Implements hook_node_delete().
+ *
+ * A node's discussion topic (and its replies, via the cascade) goes with
+ * the node — the same semantics core comments have.
+ */
+function entity_forum_node_delete($node) {
+  $topic_ids = db_query('SELECT topic_id FROM {entity_forum_topic} WHERE node_id = :nid', array(
+    ':nid' => $node->nid,
+  ))->fetchCol();
+  if ($topic_ids) {
+    entity_get_controller('entity_forum_topic')->delete($topic_ids);
+    watchdog('entity_forum', 'Deleted discussion topic(s) @tids with node @nid.', array(
+      '@tids' => implode(', ', $topic_ids),
+      '@nid' => $node->nid,
+    ), WATCHDOG_NOTICE);
+  }
+}
+
+/**
  * Menu access callback: may the current user report this post?
  *
  * Reporting is for logged-in members who can actually see the post:
@@ -1424,6 +1563,7 @@ function entity_forum_entity_property_info_alter(&$info) {
       'author_uid' => 'user',
       'forum_id' => 'entity_forum_forum',
       'last_reply_id' => 'entity_forum_reply',
+      'node_id' => 'node',
     ),
     'entity_forum_reply' => array(
       'created' => 'date',
@@ -1448,6 +1588,7 @@ function entity_forum_entity_property_info_alter(&$info) {
     'attachment_count' => t('Attachment count'),
     'listing' => t('Topic list visibility'),
     'pending' => t('Awaiting review'),
+    'node_id' => t('Attached content'),
   );
   foreach ($types as $entity_type => $columns) {
     if (!isset($info[$entity_type]['properties'])) {

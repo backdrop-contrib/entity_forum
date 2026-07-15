@@ -240,6 +240,16 @@ function entity_forum_topic_page($topic) {
   // Breadcrumb: Home > Forums > ancestor chain > the topic's forum.
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
 
+  // Node-attached topics are read on their node's page (the comments
+  // replacement) — cross-link it for anyone landing on the topic URL.
+  if (!empty($topic->node_id) && ($discussion_node = node_load($topic->node_id))) {
+    $build['node_link'] = array(
+      '#markup' => '<div class="entity-forum-node-link">' . t('This discussion belongs to !link.', array(
+        '!link' => l($discussion_node->title, 'node/' . $discussion_node->nid),
+      )) . '</div>',
+    );
+  }
+
   // The opening post.
   $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
   $build['topic'] = array(
@@ -258,6 +268,34 @@ function entity_forum_topic_page($topic) {
       isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : ''
     ),
   );
+
+  // Replies, reply/report actions and modal plumbing — shared with the
+  // node discussion rendering (comments replacement).
+  $build += _entity_forum_topic_replies_build($topic);
+
+  // Let other modules alter the topic page (posts, reply form and all).
+  backdrop_alter('entity_forum_topic_page', $build, $topic);
+  return $build;
+}
+
+/**
+ * Builds the shared reply section of a discussion.
+ *
+ * Everything below the opening post: the threaded replies with their
+ * pager, the reply call to action (or the closed / suspended / log-in
+ * notice) and the htmx modal plumbing the Reply and Report links
+ * target. Used by the topic page and by the node discussion section
+ * (entity_forum_node_discussion_build()).
+ *
+ * @param EntityForumTopic $topic
+ *   The topic whose replies are rendered.
+ *
+ * @return array
+ *   Render array fragment (keys: replies, pager, and one of closed /
+ *   reply_cta / suspended / login, plus dialog when applicable).
+ */
+function _entity_forum_topic_replies_build($topic) {
+  $build = array();
 
   // Replies, threaded Facebook-style: one visual level — every reply in
   // a chain nests under its thread root, indented once. The pager works
@@ -386,8 +424,54 @@ function entity_forum_topic_page($topic) {
     backdrop_render($assets_form);
   }
 
-  // Let other modules alter the topic page (posts, reply form and all).
-  backdrop_alter('entity_forum_topic_page', $build, $topic);
+  return $build;
+}
+
+/**
+ * Builds the discussion section rendered below a node.
+ *
+ * The comments replacement: heading with reply count, the topic's
+ * opening post when it has one (manually attached topics — the
+ * auto-created discussion topics have an empty body because the node
+ * itself is the opening post), then the shared reply section.
+ *
+ * @param EntityForumTopic $topic
+ *   The node's discussion topic.
+ *
+ * @return array
+ *   Render array for hook_node_view().
+ */
+function entity_forum_node_discussion_build($topic) {
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  $build = array(
+    '#prefix' => '<div class="entity-forum-node-discussion">',
+    '#suffix' => '</div>',
+    '#weight' => 100,
+  );
+  $count = (int) $topic->reply_count;
+  $build['heading'] = array(
+    '#markup' => '<h2 class="entity-forum-discussion-heading">' . ($count
+      ? format_plural($count, 'Discussion (1 reply)', 'Discussion (@count replies)')
+      : t('Discussion')) . '</h2>',
+  );
+  if (trim((string) $topic->content) !== '') {
+    $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
+    $build['opening'] = array(
+      '#markup' => _entity_forum_render_post(
+        $topic->content,
+        $topic->format,
+        $topic->author_uid,
+        $topic->created,
+        'topic-' . $topic->id(),
+        _entity_forum_post_links('topic', $topic, $topic),
+        '',
+        entity_forum_post_attachments('entity_forum_topic', $topic->id()),
+        $topic->author_name,
+        isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : ''
+      ),
+    );
+  }
+  $build += _entity_forum_topic_replies_build($topic);
   return $build;
 }
 
@@ -533,11 +617,12 @@ function entity_forum_report_form_submit($form, &$form_state) {
     ? t('Thank you — your report has been sent to the moderators.')
     : t('You have already reported this post; the moderators will review it.'));
 
+  $redirect_path = entity_forum_topic_discussion_path($topic);
   if (_entity_forum_is_htmx_request()) {
-    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id()));
+    header('X-EntityForum-Redirect: ' . url($redirect_path));
     backdrop_exit();
   }
-  $form_state['redirect'] = 'topic/' . $topic->id();
+  $form_state['redirect'] = $redirect_path;
 }
 
 /**
@@ -1273,8 +1358,10 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
     ? t('Thank you — your reply has been received and will appear once a moderator has approved it.')
     : t('Your reply has been posted.'));
 
-  // A held reply is not visible on the topic page, so its #reply-N anchor
-  // would not exist — redirect to the plain topic page instead.
+  // A held reply is not visible, so its #reply-N anchor would not exist
+  // — redirect to the plain page instead. Node-attached discussions
+  // return to the node page, normal topics to the topic page.
+  $redirect_path = entity_forum_topic_discussion_path($topic);
   $redirect_options = $held ? array() : array('fragment' => 'reply-' . $reply->id());
 
   if (_entity_forum_is_htmx_request()) {
@@ -1286,11 +1373,11 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
     // a real reload when the path is unchanged. Direct header():
     // backdrop_add_http_header() queues for page delivery, which this
     // early exit bypasses.
-    header('X-EntityForum-Redirect: ' . url('topic/' . $topic->id(), $redirect_options));
+    header('X-EntityForum-Redirect: ' . url($redirect_path, $redirect_options));
     backdrop_exit();
   }
 
-  $form_state['redirect'] = array('topic/' . $topic->id(), $redirect_options);
+  $form_state['redirect'] = array($redirect_path, $redirect_options);
 }
 
 /**

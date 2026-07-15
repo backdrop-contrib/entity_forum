@@ -2,5 +2,6 @@
     "_config_name": "entity_forum.settings",
     "avatar_default_fid": 0,
     "htmx_cdn": 0,
-    "htmx_cdn_url": "https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js"
+    "htmx_cdn_url": "https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js",
+    "node_types": {}
 }

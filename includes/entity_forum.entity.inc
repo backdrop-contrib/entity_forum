@@ -232,6 +232,12 @@ class EntityForumTopic extends Entity {
   public $pending_reason = '';
 
   /**
+   * The node this topic is attached to as its discussion thread (0 = none).
+   * @var int
+   */
+  public $node_id = 0;
+
+  /**
    * Denormalized count of published replies (maintained automatically).
    * @var int
    */

@@ -100,6 +100,11 @@ h2.entity-forum-topic-title {
     padding-bottom: 1px;
 }
 
+/* Hide the "clear" div that is automatically added after the signature, since the signature already has a bottom margin.   */
+.entity-forum-signature .clear > div:first-child {
+    display: none;
+}
+
 .entity-forum-attachments {
     margin-bottom: 10px;
 }
@@ -212,4 +217,17 @@ p.entity-forum-attachment-filename {
     padding: 0.5em 0.8em;
     margin: 0.5em 0 1em;
     font-size: 0.95em;
+}
+
+/* Discussion section rendered below a node (comments replacement). */
+.entity-forum-node-discussion {
+    margin-top: 2em;
+    border-top: 2px solid #ddd;
+    padding-top: 1em;
+}
+
+/* "This discussion belongs to ..." cross-link on the topic page. */
+.entity-forum-node-link {
+    font-style: italic;
+    margin: 0.5em 0;
 }
