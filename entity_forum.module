@@ -497,14 +497,15 @@ function entity_forum_private_forum_ids() {
 /**
  * Implements hook_views_query_alter().
  *
- * Applies the forum visibility rules to every View on the topic or reply
- * base tables — the shipped views and any clone a sitedev makes — so that
- * copying a view can never widen who sees what. The page callbacks gate
- * the same content, but a cloned view does not go through them.
+ * Applies the forum visibility rules to every View on ANY of the module's
+ * base tables — the shipped views and any view a sitedev builds — so that
+ * building or copying one can never widen who sees what. The page callbacks
+ * gate the same content, but a view does not go through them.
  *
- * Private forums: topics and replies in private forums are removed for
- * viewers without 'view private entity forum'. This rule has NO opt-out —
- * a view is not a safe place to make an exception to an access gate.
+ * Private forums: the forums themselves, and the topics and replies in them,
+ * are removed for viewers without 'view private entity forum'. This rule has
+ * NO opt-out — a view is not a safe place to make an exception to an access
+ * gate.
  *
  * Listing (topics): only normally listed topics appear, plus admin_only
  * topics when the viewer is a moderator. Unlisted topics (e.g.
@@ -522,13 +523,26 @@ function entity_forum_private_forum_ids() {
  */
 function entity_forum_views_query_alter(&$view, &$query) {
   $base = $view->base_table;
-  if ($base !== 'entity_forum_topic' && $base !== 'entity_forum_reply') {
+  if ($base !== 'entity_forum_forum' && $base !== 'entity_forum_topic' && $base !== 'entity_forum_reply') {
+    return;
+  }
+
+  $may_see_private = user_access('view private entity forum') || user_access('administer entity forum');
+
+  // A view listing the FORUMS themselves. Filtered on the forum's own
+  // visibility — matching entity_forum_forums_page(), which hides a private
+  // forum but not its public children.
+  if ($base === 'entity_forum_forum') {
+    if (!$may_see_private) {
+      $query->add_where(0, 'entity_forum_forum.visibility', 'private', '<>');
+    }
+    // The listing rules below are about topics; nothing else applies here.
     return;
   }
 
   // Private forums: applied first, and never opted out of. Both base tables
   // carry forum_id, so this needs no join.
-  if (!user_access('view private entity forum') && !user_access('administer entity forum')) {
+  if (!$may_see_private) {
     if ($private = entity_forum_private_forum_ids()) {
       $query->add_where(0, $base . '.forum_id', $private, 'NOT IN');
     }
