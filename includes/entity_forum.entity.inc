@@ -29,10 +29,16 @@ class EntityForumForum extends Entity {
   public $title = '';
 
   /**
-   * Plain-text description shown on forum listings.
+   * Description shown on forum listings, run through $description_format.
    * @var string
    */
   public $description = '';
+
+  /**
+   * Text format machine name for the description.
+   * @var string
+   */
+  public $description_format;
 
   /**
    * Published flag (1 = published, 0 = unpublished).
@@ -99,6 +105,19 @@ class EntityForumForum extends Entity {
   public $listed = 1;
 
   /**
+   * The topic type every topic posted in this forum takes.
+   *
+   * Set on the forum, so posting never asks which kind of topic this is — a
+   * classifieds forum holds classified ads. A forum wanting a different kind
+   * of topic gets a sub-forum. Read it through
+   * entity_forum_forum_topic_type(), which falls back to the default type if
+   * this names a type that has since been deleted.
+   *
+   * @var string
+   */
+  public $topic_type;
+
+  /**
    * Constructs a forum, filling runtime defaults for new entities.
    *
    * @param array $values
@@ -117,6 +136,9 @@ class EntityForumForum extends Entity {
     }
     if (!isset($this->author_uid)) {
       $this->author_uid = $GLOBALS['user']->uid;
+    }
+    if (empty($this->topic_type)) {
+      $this->topic_type = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
     }
   }
 
@@ -160,6 +182,20 @@ class EntityForumTopic extends Entity {
    * @var int
    */
   public $topic_id;
+
+  /**
+   * The topic type (bundle): an entity_forum topic type machine name.
+   *
+   * Must never be empty — entity_extract_ids() throws EntityMalformedException
+   * on a missing bundle, so the constructor falls back to
+   * ENTITY_FORUM_TOPIC_TYPE_DEFAULT rather than let a topic exist without one.
+   * Deliberately defaulted in the constructor and not here: a property default
+   * is evaluated when the class is declared, which would depend on
+   * entity_forum.module having been loaded first.
+   *
+   * @var string
+   */
+  public $type;
 
   /**
    * The topic title.
@@ -292,6 +328,9 @@ class EntityForumTopic extends Entity {
     if (empty($this->last_active_time)) {
       $this->last_active_time = $this->created;
     }
+    if (empty($this->type)) {
+      $this->type = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
+    }
   }
 
   /**
@@ -306,6 +345,16 @@ class EntityForumTopic extends Entity {
    */
   public function entityType() {
     return 'entity_forum_topic';
+  }
+
+  /**
+   * Implements EntityInterface::bundle().
+   *
+   * Topics are bundleable, so this overrides the base class — which returns
+   * the entity type and would silently report every topic as the same bundle.
+   */
+  public function bundle() {
+    return $this->type;
   }
 
   /**
@@ -334,6 +383,19 @@ class EntityForumReply extends Entity {
    * @var int
    */
   public $reply_id;
+
+  /**
+   * The reply type (bundle): an entity_forum topic type machine name.
+   *
+   * Derived from the reply's topic rather than chosen — a reply in a
+   * Classified topic is a Classified reply — and denormalized onto the row
+   * exactly like $forum_id. hook_entity_presave() is authoritative: it sets
+   * this from the topic on every save, so nothing else has to remember to.
+   * Defaulted in the constructor for the same reason as EntityForumTopic::$type.
+   *
+   * @var string
+   */
+  public $type;
 
   /**
    * Body of the reply.
@@ -427,6 +489,9 @@ class EntityForumReply extends Entity {
     if (!isset($this->author_uid)) {
       $this->author_uid = $GLOBALS['user']->uid;
     }
+    if (empty($this->type)) {
+      $this->type = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
+    }
   }
 
   /**
@@ -441,6 +506,16 @@ class EntityForumReply extends Entity {
    */
   public function entityType() {
     return 'entity_forum_reply';
+  }
+
+  /**
+   * Implements EntityInterface::bundle().
+   *
+   * Replies are bundleable, so this overrides the base class — which returns
+   * the entity type and would report every reply as the same bundle.
+   */
+  public function bundle() {
+    return $this->type;
   }
 
   /**

@@ -141,6 +141,7 @@ function _entity_forum_admin_forum_row($forum, $depth, array $forums_by_id) {
 function entity_forum_admin_topics() {
   $header = array(
     array('data' => t('Title'), 'field' => 'title'),
+    array('data' => t('Type'), 'field' => 'type'),
     t('Forum'),
     array('data' => t('Author')),
     array('data' => t('Replies'), 'field' => 'reply_count'),
@@ -153,12 +154,13 @@ function entity_forum_admin_topics() {
   $query = db_select('entity_forum_topic', 't')
     ->extend('PagerDefault')
     ->extend('TableSort')
-    ->fields('t', array('topic_id', 'title', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status', 'pending'))
+    ->fields('t', array('topic_id', 'title', 'type', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status', 'pending'))
     ->orderByHeader($header)
     ->limit(50);
   $result = $query->execute();
 
   $forums_by_id = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
+  $topic_types = entity_forum_topic_types();
 
   // Short labels for the Listing column; 'normal' shows as a quiet dash.
   $listing_labels = array(
@@ -171,6 +173,7 @@ function entity_forum_admin_topics() {
   foreach ($result as $topic) {
     $rows[] = array(
       l($topic->title, 'topic/' . $topic->topic_id),
+      isset($topic_types[$topic->type]) ? check_plain($topic_types[$topic->type]->label) : check_plain($topic->type),
       isset($forums_by_id[$topic->forum_id]) ? check_plain($forums_by_id[$topic->forum_id]) : t('N/A'),
       entity_forum_format_author($topic->author_uid, $topic->author_name),
       $topic->reply_count,
@@ -257,10 +260,11 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#required' => TRUE,
   );
   $form['description'] = array(
-    '#type' => 'textarea',
+    '#type' => 'text_format',
     '#title' => t('Description'),
-    '#description' => t('Plain text shown in forum listings.'),
+    '#description' => t('Shown in forum listings and at the top of the forum.'),
     '#default_value' => (string) $forum->description,
+    '#format' => $forum->description_format,
     '#rows' => 3,
   );
   $form['parent_id'] = array(
@@ -299,12 +303,30 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['author_close'] = array(
     '#type' => 'checkbox',
     '#title' => t('Authors may close and reopen their own topics'),
-    '#description' => t('Adds a Close/Reopen link to a topic for its author — for classified-ad forums, so a seller can mark an ad sold. Applies to this forum only, not its sub-forums.'),
+    '#description' => t('Adds a Close/Reopen link to a topic for its author — so, for example, a seller can mark an ad sold. Applies to this forum only, not its sub-forums.'),
     '#default_value' => !empty($forum->author_close),
   );
 
+  $topic_type_options = entity_forum_topic_type_labels();
+  $form['topic_type'] = array(
+    '#type' => 'select',
+    '#title' => t('Topic type'),
+    '#options' => $topic_type_options,
+    '#default_value' => entity_forum_forum_topic_type($forum)->type,
+    '#required' => TRUE,
+    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a classifieds forum can have a price while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. For a different kind of topic, add a sub-forum. Applies to this forum only, not its sub-forums.', array(
+      '@types' => url('admin/structure/entity-forum/topic-types'),
+    )),
+  );
+  if (!$forum->isNew() && entity_forum_forum_topic_count($forum->id()) > 0) {
+    $form['topic_type']['#description'] .= ' <strong>' . t('Changing this does NOT retype the topics already posted here — they keep the type they were created with.') . '</strong>';
+  }
+
   // Widgets for any fields a site has attached to forums.
   field_attach_form('entity_forum_forum', $forum, $form, $form_state);
+
+  // Order title/description alongside the real fields, per Field UI.
+  entity_forum_apply_extra_field_weights($form, 'entity_forum_forum', 'entity_forum_forum');
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -331,13 +353,15 @@ function entity_forum_forum_form_submit($form, &$form_state) {
 
   $is_new = $forum->isNew();
   $forum->title = $values['title'];
-  $forum->description = $values['description'];
+  $forum->description = $values['description']['value'];
+  $forum->description_format = $values['description']['format'];
   $forum->parent_id = (int) $values['parent_id'];
   $forum->visibility = $values['visibility'];
   $forum->weight = (int) $values['weight'];
   $forum->status = (int) $values['status'];
   $forum->listed = (int) !empty($values['listed']);
   $forum->author_close = (int) !empty($values['author_close']);
+  $forum->topic_type = $values['topic_type'];
   $forum->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_forum', $forum, $form, $form_state);
   $forum->save();
@@ -406,15 +430,41 @@ function entity_forum_forum_delete_form_submit($form, &$form_state) {
  * @param EntityForumTopic|null $topic
  *   The topic to edit, or NULL to create a new one.
  */
-function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
+function entity_forum_topic_form($form, &$form_state, $topic = NULL, $topic_type = NULL) {
   if (!isset($topic)) {
-    $topic = entity_create('entity_forum_topic', array());
+    // The type is the bundle, so it must be set before field_attach_form()
+    // decides which widgets this form gets — hence it arrives in the URL
+    // rather than as a select (the node/add/TYPE pattern).
+    $topic = entity_create('entity_forum_topic', isset($topic_type)
+      ? array('type' => $topic_type->type)
+      : array());
   }
   $form_state['topic'] = $topic;
 
-  $forum_options = entity_forum_forum_options();
+  // Which kind of topic this is; the type cannot change after creation
+  // because the fields belong to it.
+  $types = entity_forum_topic_types();
+  $form['topic_type_display'] = array(
+    '#type' => 'item',
+    '#title' => t('Topic type'),
+    '#markup' => isset($types[$topic->type]) ? check_plain($types[$topic->type]->label) : check_plain($topic->type),
+  );
+
+  // Only forums that take this type: the type is a property of the forum, so
+  // offering the rest would only produce a validation error. On edit the
+  // topic's existing forum is always included, even if the forum's type has
+  // since been changed out from under it.
+  $forum_options = entity_forum_forums_of_topic_type($topic->type);
+  if (!$topic->isNew() && !empty($topic->forum_id) && !isset($forum_options[$topic->forum_id])) {
+    $current = entity_load('entity_forum_forum', $topic->forum_id);
+    if ($current) {
+      $forum_options[$topic->forum_id] = $current->label();
+    }
+  }
   if (empty($forum_options)) {
-    backdrop_set_message(t('Create a forum before adding topics.'), 'warning');
+    backdrop_set_message(t('No forum takes %type topics yet. Set a forum\'s topic type to %type first.', array(
+      '%type' => isset($types[$topic->type]) ? $types[$topic->type]->label : $topic->type,
+    )), 'warning');
   }
 
   $form['title'] = array(
@@ -480,6 +530,8 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
 
   // Widgets for any fields a site has attached to topics.
   field_attach_form('entity_forum_topic', $topic, $form, $form_state);
+  // Order title/content alongside the type's fields, per Field UI.
+  entity_forum_apply_extra_field_weights($form, 'entity_forum_topic', $topic->type);
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -497,8 +549,26 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL) {
  * ("Title [nid:N]"), reference an existing node, and not collide with
  * another topic already attached to the same node (one discussion per
  * node). The parsed nid is stashed for the submit handler.
+ *
+ * Also checks the chosen forum accepts this topic's type: unlike the
+ * frontend, where the forum is fixed and the route already gates the type,
+ * an administrator picks the forum here after the type is decided.
  */
 function entity_forum_topic_form_validate($form, &$form_state) {
+  $topic = $form_state['topic'];
+  if (!empty($form_state['values']['forum_id'])) {
+    $forum = entity_load('entity_forum_forum', $form_state['values']['forum_id']);
+    if ($forum && entity_forum_forum_topic_type($forum)->type !== $topic->type) {
+      $types = entity_forum_topic_types();
+      form_set_error('forum_id', t('%forum takes %forum_type topics, but this is a %type topic. Choose a forum that takes %type topics, or change the type on the <a href="@forum">forum</a>.', array(
+        '%forum' => $forum->label(),
+        '%forum_type' => entity_forum_forum_topic_type($forum)->label,
+        '%type' => isset($types[$topic->type]) ? $types[$topic->type]->label : $topic->type,
+        '@forum' => url('admin/content/entity-forum/forum/' . $forum->id() . '/edit'),
+      )));
+    }
+  }
+
   $value = trim($form_state['values']['node_link']);
   $node_id = 0;
   if ($value !== '') {
@@ -611,6 +681,7 @@ function entity_forum_reply_form($form, &$form_state, $reply) {
 
   // Widgets for any fields a site has attached to replies.
   field_attach_form('entity_forum_reply', $reply, $form, $form_state);
+  entity_forum_apply_extra_field_weights($form, 'entity_forum_reply', $reply->type);
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -706,30 +777,6 @@ function entity_forum_settings_form($form, &$form_state) {
     ),
   );
 
-  $form['htmx'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('htmx library'),
-    '#description' => t('The forum uses the <a href="@htmx">htmx</a> library for its modal reply form. The module ships its own copy; loading from a CDN instead lets the site use a newer htmx release without waiting for a module update.', array(
-      '@htmx' => 'https://htmx.org/',
-    )),
-  );
-  $form['htmx']['htmx_cdn'] = array(
-    '#type' => 'checkbox',
-    '#title' => t('Load htmx from a CDN'),
-    '#default_value' => (int) $config->get('htmx_cdn'),
-    '#description' => t("When unchecked, the module's bundled copy is used."),
-  );
-  $form['htmx']['htmx_cdn_url'] = array(
-    '#type' => 'textfield',
-    '#title' => t('CDN URL for htmx'),
-    '#default_value' => (string) $config->get('htmx_cdn_url'),
-    '#description' => t('For example %url.', array('%url' => 'https://unpkg.com/htmx.org@2.0.7/dist/htmx.min.js')),
-    '#maxlength' => 255,
-    '#states' => array(
-      'visible' => array(':input[name="htmx_cdn"]' => array('checked' => TRUE)),
-    ),
-  );
-
   // Content discussions: the comments replacement. Each enabled content
   // type gets its discussion topics find-or-created (unlisted) in the
   // chosen forum and rendered below the node.
@@ -752,66 +799,12 @@ function entity_forum_settings_form($form, &$form_state) {
     );
   }
 
-  // Topic scheduling: publish on a start date, close + delist after an
-  // end date — built for classified-ad forums.
-  $form['scheduling'] = array(
-    '#type' => 'fieldset',
-    '#title' => t('Topic scheduling (classified ads)'),
-    '#description' => t('Publish topics when a start date arrives and close them (dropping them from topic lists) after an end date, using date fields attached to topics — add the fields at <a href="@fields">the topic field settings</a> and use each field\'s "Restrict to forums" option to scope them to your classifieds forums. Cron runs the transitions.', array(
-      '@fields' => url('admin/structure/entity-forum'),
-    )),
-  );
-  $date_field_options = array('' => t('- Disabled -'));
-  foreach (field_info_instances('entity_forum_topic', 'entity_forum_topic') as $field_name => $instance) {
-    $field_info = field_info_field($field_name);
-    if (in_array($field_info['type'], array('date', 'datetime', 'datestamp'), TRUE)) {
-      $date_field_options[$field_name] = t('@label (@name)', array('@label' => $instance['label'], '@name' => $field_name));
-    }
-  }
-  $form['scheduling']['schedule_start_field'] = array(
-    '#type' => 'select',
-    '#title' => t('Start date field'),
-    '#options' => $date_field_options,
-    '#default_value' => (string) $config->get('schedule_start_field'),
-    '#description' => t('A topic with a future start date stays unpublished (visible only to its author and moderators) until the date arrives.'),
-  );
-  $form['scheduling']['schedule_end_field'] = array(
-    '#type' => 'select',
-    '#title' => t('End date field'),
-    '#options' => $date_field_options,
-    '#default_value' => (string) $config->get('schedule_end_field'),
-    '#description' => t('The topic stays visible through its end date, then is closed and dropped from topic lists (direct links keep working).'),
-  );
-  $form['scheduling']['schedule_duration'] = array(
-    '#type' => 'number',
-    '#title' => t('Default lifetime (days)'),
-    '#min' => 0,
-    '#default_value' => (int) $config->get('schedule_duration'),
-    '#description' => t('Used when a topic has a start date but no end date: it closes this many days after the start. 0 means no automatic end.'),
-  );
-
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Save configuration'),
   );
   return $form;
-}
-
-/**
- * Validation for entity_forum_settings_form(): the htmx CDN URL.
- *
- * The URL becomes a script tag on forum pages, so it must be an
- * absolute https URL when CDN loading is enabled.
- */
-function entity_forum_settings_form_validate($form, &$form_state) {
-  if (!empty($form_state['values']['htmx_cdn'])) {
-    $url = trim($form_state['values']['htmx_cdn_url']);
-    if ($url === '' || strpos($url, 'https://') !== 0 || !valid_url($url, TRUE)) {
-      form_set_error('htmx_cdn_url', t('Enter an absolute https:// URL for the htmx CDN, or untick the CDN option to use the bundled copy.'));
-    }
-    $form_state['values']['htmx_cdn_url'] = $url;
-  }
 }
 
 /**
@@ -840,8 +833,6 @@ function entity_forum_settings_form_submit($form, &$form_state) {
   }
 
   $config->set('avatar_default_fid', $fid);
-  $config->set('htmx_cdn', (int) $form_state['values']['htmx_cdn']);
-  $config->set('htmx_cdn_url', trim($form_state['values']['htmx_cdn_url']));
 
   // Content discussions: store only the enabled types (type => forum).
   $node_types_map = array();
@@ -852,11 +843,6 @@ function entity_forum_settings_form_submit($form, &$form_state) {
     }
   }
   $config->set('node_types', $node_types_map);
-
-  // Topic scheduling (classified ads).
-  $config->set('schedule_start_field', (string) $form_state['values']['schedule_start_field']);
-  $config->set('schedule_end_field', (string) $form_state['values']['schedule_end_field']);
-  $config->set('schedule_duration', max(0, (int) $form_state['values']['schedule_duration']));
 
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));
@@ -905,12 +891,12 @@ function entity_forum_node_autocomplete($string = '') {
 function entity_forum_structure_page() {
   $build = array();
   $rows = array();
+  $field_ui = module_exists('field_ui');
+
+  // Forums are single-bundle: fields hang straight off the entity type.
   $types = array(
     'forum' => array(t('Forum'), t('Forum containers holding discussion topics.')),
-    'topic' => array(t('Topic'), t('Discussion threads within a forum.')),
-    'reply' => array(t('Reply'), t('Replies to forum topics.')),
   );
-  $field_ui = module_exists('field_ui');
   foreach ($types as $path_part => $info) {
     $links = array();
     if ($field_ui) {
@@ -923,6 +909,22 @@ function entity_forum_structure_page() {
       implode(' | ', $links),
     );
   }
+
+  // Topics and replies are bundleable: their fields belong to a topic type,
+  // not to topics/replies as a whole, so both rows lead to the type list
+  // rather than straight to Field UI.
+  $topic_types = entity_forum_topic_types();
+  $manage = l(format_plural(count($topic_types), 'Manage 1 topic type', 'Manage @count topic types'), 'admin/structure/entity-forum/topic-types');
+  $rows[] = array(
+    l(t('Topic'), 'admin/structure/entity-forum/topic-types'),
+    t('Discussion threads within a forum. Topics have types — add a type to give a kind of topic its own fields.'),
+    $manage,
+  );
+  $rows[] = array(
+    l(t('Reply'), 'admin/structure/entity-forum/topic-types'),
+    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — see each type\'s <em>Replies</em> tab. For example, an offer amount on replies to a classified ad.'),
+    $manage,
+  );
   if (!$field_ui) {
     $build['notice'] = array(
       '#markup' => '<div class="messages warning">' . t('Enable the <em>Field UI</em> module to manage fields and display for the forum entity types.') . '</div>',
@@ -965,5 +967,253 @@ function entity_forum_structure_bundle_page($entity_type) {
     '#items' => $items,
     '#empty' => t('No fields attached yet. Use the Manage fields tab to add some.'),
   );
+  return $build;
+}
+
+/**
+ * Page callback: the topic type list (admin/structure/entity-forum/topic-types).
+ *
+ * @return array
+ *   Render array.
+ */
+function entity_forum_topic_types_page() {
+  $build = array();
+  $field_ui = module_exists('field_ui');
+  $rows = array();
+
+  foreach (entity_forum_topic_types() as $machine_name => $topic_type) {
+    $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $machine_name);
+    $operations = array(l(t('Edit'), $path));
+    if ($field_ui) {
+      $operations[] = l(t('Manage fields'), $path . '/fields');
+      $operations[] = l(t('Manage display'), $path . '/display');
+    }
+    if ($machine_name !== ENTITY_FORUM_TOPIC_TYPE_DEFAULT) {
+      $operations[] = l(t('Delete'), $path . '/delete');
+    }
+    $usage = entity_forum_topic_type_usage($machine_name);
+    $rows[] = array(
+      l($topic_type->label, $path),
+      array('data' => check_plain($machine_name), 'class' => array('entity-forum-machine-name')),
+      $topic_type->description === '' ? '—' : check_plain($topic_type->description),
+      format_plural($usage, '1 topic', '@count topics'),
+      implode(' | ', $operations),
+    );
+  }
+
+  if (!$field_ui) {
+    $build['notice'] = array(
+      '#markup' => '<div class="messages warning">' . t('Enable the <em>Field UI</em> module to add fields to topic types.') . '</div>',
+    );
+  }
+  $build['types'] = array(
+    '#theme' => 'table',
+    '#header' => array(t('Name'), t('Machine name'), t('Description'), t('Topics'), t('Operations')),
+    '#rows' => $rows,
+  );
+  return $build;
+}
+
+/**
+ * Form builder: add or edit a topic type.
+ *
+ * The machine name is locked once the type exists: it is the bundle name
+ * every field instance on the type is keyed by, and the value stored in
+ * {entity_forum_topic}.type on every topic of that type. Renaming it would
+ * orphan both.
+ *
+ * @param object|null $topic_type
+ *   The topic type to edit, or NULL to add a new one.
+ */
+function entity_forum_topic_type_form($form, &$form_state, $topic_type = NULL) {
+  $is_new = !isset($topic_type);
+  $form_state['topic_type'] = $topic_type;
+  $form['#tree'] = FALSE;
+
+  $form['label'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Name'),
+    '#description' => t('The human-readable name of this topic type, e.g. "Classified".'),
+    '#default_value' => $is_new ? '' : $topic_type->label,
+    '#maxlength' => 255,
+    '#required' => TRUE,
+  );
+  $form['type'] = array(
+    '#type' => 'machine_name',
+    '#default_value' => $is_new ? '' : $topic_type->type,
+    '#maxlength' => 32,
+    '#disabled' => !$is_new,
+    '#machine_name' => array(
+      'exists' => 'entity_forum_topic_type_load',
+      'source' => array('label'),
+    ),
+    '#description' => t('A unique machine-readable name. Cannot be changed once the type exists.'),
+  );
+  $form['description'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Description'),
+    '#description' => t('Shown to moderators on the topic type list.'),
+    '#default_value' => $is_new ? '' : $topic_type->description,
+    '#rows' => 3,
+  );
+
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => $is_new ? t('Save topic type') : t('Save'),
+  );
+  return $form;
+}
+
+/**
+ * Submit handler for entity_forum_topic_type_form().
+ */
+function entity_forum_topic_type_form_submit($form, &$form_state) {
+  $type = (object) array(
+    'type' => $form_state['values']['type'],
+    'label' => $form_state['values']['label'],
+    'description' => $form_state['values']['description'],
+  );
+  entity_forum_topic_type_save($type);
+  backdrop_set_message(t('The topic type %label has been saved.', array('%label' => $type->label)));
+  $form_state['redirect'] = 'admin/structure/entity-forum/topic-types';
+}
+
+/**
+ * Form builder: confirm deletion of a topic type.
+ *
+ * @param object $topic_type
+ *   The topic type to delete.
+ */
+function entity_forum_topic_type_delete_form($form, &$form_state, $topic_type) {
+  $form_state['topic_type'] = $topic_type;
+  $usage = entity_forum_topic_type_usage($topic_type->type);
+
+  // The default type is the fallback every topic without a type lands on
+  // (see ENTITY_FORUM_TOPIC_TYPE_DEFAULT); deleting it would only make
+  // entity_forum_topic_types() synthesise it again.
+  if ($topic_type->type === ENTITY_FORUM_TOPIC_TYPE_DEFAULT) {
+    $form['message'] = array(
+      '#markup' => '<p>' . t('The %label type cannot be deleted: it is the default topic type.', array('%label' => $topic_type->label)) . '</p>',
+    );
+    return $form;
+  }
+
+  // Deleting a type with topics would leave them pointing at a bundle that
+  // no longer exists, and every field API call on them would throw.
+  if ($usage > 0) {
+    $form['message'] = array(
+      '#markup' => '<p>' . format_plural($usage,
+        'The %label type cannot be deleted: 1 topic still uses it. Move or delete that topic first.',
+        'The %label type cannot be deleted: @count topics still use it. Move or delete those topics first.',
+        array('%label' => $topic_type->label)) . '</p>',
+    );
+    return $form;
+  }
+
+  return confirm_form(
+    $form,
+    t('Are you sure you want to delete the topic type %label?', array('%label' => $topic_type->label)),
+    'admin/structure/entity-forum/topic-types',
+    t('Any fields attached to this type will also be removed. This action cannot be undone.'),
+    t('Delete'),
+    t('Cancel')
+  );
+}
+
+/**
+ * Submit handler for entity_forum_topic_type_delete_form().
+ */
+function entity_forum_topic_type_delete_form_submit($form, &$form_state) {
+  $topic_type = $form_state['topic_type'];
+
+  // Re-check under the same rules as the form build: the confirm page may
+  // have been sitting open while a topic was created on this type.
+  if ($topic_type->type === ENTITY_FORUM_TOPIC_TYPE_DEFAULT || entity_forum_topic_type_usage($topic_type->type) > 0) {
+    backdrop_set_message(t('The topic type %label could not be deleted.', array('%label' => $topic_type->label)), 'error');
+  }
+  else {
+    field_attach_delete_bundle('entity_forum_topic', $topic_type->type);
+    entity_forum_topic_type_delete($topic_type->type);
+    backdrop_set_message(t('The topic type %label has been deleted.', array('%label' => $topic_type->label)));
+  }
+  $form_state['redirect'] = 'admin/structure/entity-forum/topic-types';
+}
+
+/**
+ * Page callback: add a topic as an administrator.
+ *
+ * Mirrors the frontend flow: with one topic type this is the form, with
+ * several it lists them first. The type travels in the URL because it is the
+ * bundle and so decides the form's fields.
+ *
+ * @return array|string
+ *   The topic form, or a render array listing the types.
+ */
+function entity_forum_admin_topic_add_page() {
+  $types = entity_forum_topic_types();
+
+  if (count($types) === 1) {
+    return backdrop_get_form('entity_forum_topic_form', NULL, reset($types));
+  }
+
+  $items = array();
+  foreach ($types as $machine_name => $topic_type) {
+    $path = 'admin/content/entity-forum/topics/add/' . str_replace('_', '-', $machine_name);
+    $item = '<strong>' . l($topic_type->label, $path) . '</strong>';
+    if ($topic_type->description !== '') {
+      $item .= '<div class="description">' . check_plain($topic_type->description) . '</div>';
+    }
+    $items[] = $item;
+  }
+
+  return array(
+    'intro' => array(
+      '#markup' => '<p>' . t('Choose the kind of topic to add.') . '</p>',
+    ),
+    'types' => array(
+      '#theme' => 'item_list',
+      '#items' => $items,
+    ),
+  );
+}
+
+/**
+ * Page callback: the "Replies" tab on a topic type.
+ *
+ * Exists so Field UI has a page to hang its Manage fields / Manage display
+ * tabs on for the reply bundle (see the reply bundles in
+ * entity_forum_entity_info()). Replies are not configurable in their own
+ * right — their type is their topic's type — so this page only explains
+ * itself and points at the field tabs.
+ *
+ * @param object $topic_type
+ *   The topic type, loaded by entity_forum_topic_type_load().
+ *
+ * @return array
+ *   Render array.
+ */
+function entity_forum_topic_type_replies_page($topic_type) {
+  $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $topic_type->type) . '/replies';
+  $build = array();
+  $build['intro'] = array(
+    '#markup' => '<p>' . t('Fields here appear on replies posted in %type topics — an offer amount on replies to a classified ad, say, which would make no sense on an ordinary reply. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
+      '%type' => $topic_type->label,
+    )) . '</p>',
+  );
+  if (module_exists('field_ui')) {
+    $build['links'] = array(
+      '#theme' => 'item_list',
+      '#items' => array(
+        l(t('Manage fields'), $path . '/fields'),
+        l(t('Manage display'), $path . '/display'),
+      ),
+    );
+  }
+  else {
+    $build['notice'] = array(
+      '#markup' => '<div class="messages warning">' . t('Enable the <em>Field UI</em> module to add fields to replies.') . '</div>',
+    );
+  }
   return $build;
 }

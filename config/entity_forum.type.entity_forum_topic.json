@@ -1,0 +1,6 @@
+{
+    "_config_name": "entity_forum.type.entity_forum_topic",
+    "type": "entity_forum_topic",
+    "label": "Topic",
+    "description": "The standard discussion topic."
+}

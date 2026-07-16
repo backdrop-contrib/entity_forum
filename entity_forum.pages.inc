@@ -15,7 +15,7 @@
  *   Render array.
  */
 function entity_forum_forums_page() {
-  $forums = db_query('SELECT forum_id, title, description, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 AND listed = 1 ORDER BY weight, title')->fetchAll();
+  $forums = db_query('SELECT forum_id, title, description, description_format, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 AND listed = 1 ORDER BY weight, title')->fetchAll();
 
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
   // Filter out private forums the user may not see, then group by parent.
@@ -74,7 +74,7 @@ function _entity_forum_index_rows(array $children, $parent_id, $depth, array &$r
     }
     $cell = '<div class="entity-forum-title" style="padding-left: ' . ($depth * 24) . 'px">' . $title;
     if (!empty($forum->description)) {
-      $cell .= '<div class="entity-forum-description">' . check_plain($forum->description) . '</div>';
+      $cell .= '<div class="entity-forum-description">' . _entity_forum_format_description($forum) . '</div>';
     }
     $cell .= '</div>';
 
@@ -136,7 +136,7 @@ function entity_forum_forum_page($forum) {
 
   if (!empty($forum->description)) {
     $build['description'] = array(
-      '#markup' => '<div class="entity-forum-description">' . check_plain($forum->description) . '</div>',
+      '#markup' => '<div class="entity-forum-description">' . _entity_forum_format_description($forum) . '</div>',
     );
   }
 
@@ -148,7 +148,7 @@ function entity_forum_forum_page($forum) {
   // Sub-forums, if any: full rows with topic/post counts and last
   // activity (rolled up to include their own sub-forums), matching the
   // forums index rather than a plain bullet list.
-  $subforums = db_query('SELECT forum_id, title, description, visibility FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 AND listed = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
+  $subforums = db_query('SELECT forum_id, title, description, description_format, visibility FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 AND listed = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
   $counts = entity_forum_forum_counts();
   $subforum_rows = array();
   foreach ($subforums as $subforum) {
@@ -161,7 +161,7 @@ function entity_forum_forum_page($forum) {
     }
     $cell = '<div class="entity-forum-title">' . $title;
     if (!empty($subforum->description)) {
-      $cell .= '<div class="entity-forum-description">' . check_plain($subforum->description) . '</div>';
+      $cell .= '<div class="entity-forum-description">' . _entity_forum_format_description($subforum) . '</div>';
     }
     $cell .= '</div>';
     $sc = isset($counts[$subforum->forum_id]) ? $counts[$subforum->forum_id] : array('topic_count' => 0, 'post_count' => 0, 'last_active_time' => 0);
@@ -224,22 +224,14 @@ function entity_forum_topic_page($topic) {
   backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
 
   if (!$topic->status) {
-    // Unpublished topics are readable by moderators/admins and — so a
-    // member can review their own scheduled classified ad — the author.
+    // Unpublished topics are readable by moderators/admins and by their
+    // own author, so a member can review a topic that is not yet live.
     $is_author = $GLOBALS['user']->uid > 0 && (int) $topic->author_uid === (int) $GLOBALS['user']->uid;
     if (!$is_author && !entity_forum_user_is_moderator() && !user_access('administer entity forum topic')) {
       backdrop_access_denied();
       backdrop_exit();
     }
-    $schedule = entity_forum_topic_schedule($topic);
-    if ($schedule['start'] !== NULL && $schedule['start'] > REQUEST_TIME) {
-      backdrop_set_message(t('This topic is scheduled to be published on @date; until then it is only visible to its author and the moderators.', array(
-        '@date' => format_date($schedule['start'], 'medium'),
-      )), 'warning');
-    }
-    else {
-      backdrop_set_message(t('This topic is unpublished and not visible to other members.'), 'warning');
-    }
+    backdrop_set_message(t('This topic is unpublished and not visible to other members.'), 'warning');
   }
 
   // Non-moderators are already blocked by entity_forum_topic_view_access();
@@ -262,9 +254,10 @@ function entity_forum_topic_page($topic) {
     );
   }
 
-  // The opening post. Explicit #weight keeps it above the reply section:
-  // the dialog element in the shared reply build triggers an unstable
-  // sort of all siblings (see _entity_forum_topic_replies_build()).
+  // The opening post. Every sibling on this page carries an explicit
+  // #weight: element_children() sorts through an UNSTABLE sort as soon as
+  // any one of them has a #weight, so leaving some weightless lets them
+  // reorder arbitrarily (see _entity_forum_topic_replies_build()).
   $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
   $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
   $build['topic'] = array(
@@ -286,8 +279,8 @@ function entity_forum_topic_page($topic) {
     ),
   );
 
-  // Replies, reply/report actions and modal plumbing — shared with the
-  // node discussion rendering (comments replacement).
+  // Replies and the reply/report actions — shared with the node
+  // discussion rendering (comments replacement).
   $build += _entity_forum_topic_replies_build($topic);
 
   // Let other modules alter the topic page (posts, reply form and all).
@@ -299,9 +292,8 @@ function entity_forum_topic_page($topic) {
  * Builds the shared reply section of a discussion.
  *
  * Everything below the opening post: the threaded replies with their
- * pager, the reply call to action (or the closed / suspended / log-in
- * notice) and the htmx modal plumbing the Reply and Report links
- * target. Used by the topic page and by the node discussion section
+ * pager and the reply call to action (or the closed / suspended / log-in
+ * notice). Used by the topic page and by the node discussion section
  * (entity_forum_node_discussion_build()).
  *
  * @param EntityForumTopic $topic
@@ -309,7 +301,7 @@ function entity_forum_topic_page($topic) {
  *
  * @return array
  *   Render array fragment (keys: replies, pager, and one of closed /
- *   reply_cta / suspended / login, plus dialog when applicable).
+ *   reply_cta / suspended / login).
  */
 function _entity_forum_topic_replies_build($topic) {
   $build = array();
@@ -386,17 +378,17 @@ function _entity_forum_topic_replies_build($topic) {
       $items .= $is_child ? '<div class="entity-forum-reply-child">' . $post . '</div>' : $post;
     }
   }
-  // Explicit weights: the dialog carries a #weight, which makes
-  // element_children() sort ALL siblings via backdrop_sort() /
-  // array_multisort() — an unstable sort that would otherwise scramble
-  // equal-weight (weightless) siblings and float the replies above the
-  // opening post. Weighting every element keeps the order deterministic.
+  // Every sibling carries an explicit #weight. element_children() sorts
+  // through backdrop_sort() / array_multisort() — an UNSTABLE sort — as
+  // soon as any one sibling has a #weight, which would otherwise scramble
+  // the weightless ones and float the replies above the opening post.
+  // Keeping them all weighted makes the order deterministic regardless of
+  // what future elements are added here.
   $build['replies'] = array('#markup' => $items, '#weight' => 10);
   $build['pager'] = array('#theme' => 'pager', '#weight' => 20);
 
-  // Reply call to action. The inline bottom form is gone: each post has
-  // a "Reply" link (modal via htmx, standalone page without JS), and
-  // this closing link replies to the topic itself.
+  // Reply call to action. Each post has its own "Reply" link; this closing
+  // link replies to the topic itself.
   if ($topic->closed) {
     $build['closed'] = array(
       '#markup' => '<div class="entity-forum-closed">' . t('This topic is closed to new replies.') . '</div>',
@@ -407,7 +399,7 @@ function _entity_forum_topic_replies_build($topic) {
     $reply_path = 'topic/' . $topic->id() . '/reply';
     $build['reply_cta'] = array(
       '#markup' => '<div class="entity-forum-actions">' . l(t('Reply to this topic'), $reply_path, array(
-        'attributes' => _entity_forum_modal_link_attributes(url($reply_path)) + array('class' => array('entity-forum-reply-link', 'button')),
+        'attributes' => array('class' => array('entity-forum-reply-link', 'button')),
       )) . '</div>',
       '#weight' => 30,
     );
@@ -426,30 +418,6 @@ function _entity_forum_topic_replies_build($topic) {
       )) . '</div>',
       '#weight' => 30,
     );
-  }
-
-  // Modal plumbing: htmx + the dialog the Reply and Report links target.
-  // Loaded when the viewer can reply, or is logged in (Report links).
-  if (entity_forum_reply_create_access($topic) || user_is_logged_in()) {
-    entity_forum_add_htmx();
-    backdrop_add_js(backdrop_get_path('module', 'entity_forum') . '/js/entity_forum.js');
-    $build['dialog'] = array(
-      '#markup' => '<dialog id="entity-forum-dialog" class="entity-forum-dialog"><button type="button" class="entity-forum-dialog-close" aria-label="' . t('Close') . '">&times;</button><div id="entity-forum-dialog-content"></div></dialog>',
-      '#weight' => 100,
-    );
-  }
-
-  if (entity_forum_reply_create_access($topic)) {
-    // Register the reply form's assets on THIS page without printing
-    // the form: building + rendering pulls in the text-format editor
-    // libraries and their Backdrop.settings (keyed by format, not by
-    // element), so when htmx swaps the form fragment into the dialog,
-    // Backdrop.attachBehaviors() finds everything already loaded and
-    // the WYSIWYG editor initializes. The rendered markup is discarded
-    // deliberately — printing it would duplicate the fragment's IDs.
-    // (The report form is a plain textarea — no assets to preload.)
-    $assets_form = backdrop_get_form('entity_forum_reply_frontend_form', $topic);
-    backdrop_render($assets_form);
   }
 
   return $build;
@@ -477,9 +445,8 @@ function entity_forum_node_discussion_build($topic) {
     '#weight' => 100,
   );
   $count = (int) $topic->reply_count;
-  // Explicit weights keep heading → opening post → replies ordered; the
-  // shared reply build's dialog element forces an unstable sibling sort
-  // (see _entity_forum_topic_replies_build()).
+  // Explicit weights keep heading → opening post → replies ordered; see
+  // _entity_forum_topic_replies_build() for why every sibling needs one.
   $build['heading'] = array(
     '#markup' => '<h2 class="entity-forum-discussion-heading">' . ($count
       ? format_plural($count, 'Discussion (1 reply)', 'Discussion (@count replies)')
@@ -542,9 +509,7 @@ function _entity_forum_reply_thread_root($reply_id, array $map) {
 /**
  * Page callback: the standalone reply form (topic/N/reply).
  *
- * The no-JS fallback for the per-post "Reply" links and the source the
- * htmx modal fetches (entity_forum_htmx_deliver() strips the page chrome
- * for HX-Request fetches). Threading works as before via ?reply_to=N.
+ * Where the per-post "Reply" links lead. Threading via ?reply_to=N.
  *
  * @param EntityForumTopic $topic
  *   The topic being replied to.
@@ -562,9 +527,8 @@ function entity_forum_reply_page($topic) {
 /**
  * Page callback: the report form (forum-report/{topic|reply}/{id}).
  *
- * The no-JS fallback page for the per-post "Report" links and the htmx
- * modal source, exactly like the reply form route. Access (logged in,
- * target exists and is visible to the reporter) is checked by
+ * Where the per-post "Report" links lead. Access (logged in, target
+ * exists and is visible to the reporter) is checked by
  * entity_forum_report_access().
  *
  * @param string $type
@@ -587,9 +551,7 @@ function entity_forum_report_page($type, $id) {
 /**
  * Form builder: report a post to the moderators.
  *
- * Shows what is being reported (author + excerpt) above a reason
- * textarea. In the htmx modal the form posts back into the dialog, like
- * the quick reply.
+ * Shows what is being reported (author + excerpt) above a reason textarea.
  *
  * @param string $type
  *   'topic' or 'reply'.
@@ -619,12 +581,6 @@ function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
     '#description' => t('Only the moderators see your report.'),
   );
 
-  if (_entity_forum_is_htmx_request()) {
-    $form['#attributes']['hx-post'] = url(current_path());
-    $form['#attributes']['hx-target'] = '#entity-forum-dialog-content';
-    $form['#attributes']['hx-swap'] = 'innerHTML';
-  }
-
   $form['actions'] = array('#type' => 'actions', '#weight' => 10);
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -636,11 +592,8 @@ function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
 /**
  * Submit handler for entity_forum_report_form().
  *
- * Files the report (one open report per member per post — a duplicate
- * just re-confirms) and returns the member to the topic page; the htmx
- * path uses the same X-EntityForum-Redirect mechanism as the reply
- * modal, so the dialog closes and the confirmation message shows after
- * the reload.
+ * Files the report (one open report per member per post — a duplicate just
+ * re-confirms) and returns the member to the topic or node page.
  */
 function entity_forum_report_form_submit($form, &$form_state) {
   $type = $form_state['report_type'];
@@ -652,12 +605,7 @@ function entity_forum_report_form_submit($form, &$form_state) {
     ? t('Thank you — your report has been sent to the moderators.')
     : t('You have already reported this post; the moderators will review it.'));
 
-  $redirect_path = entity_forum_topic_discussion_path($topic);
-  if (_entity_forum_is_htmx_request()) {
-    header('X-EntityForum-Redirect: ' . url($redirect_path));
-    backdrop_exit();
-  }
-  $form_state['redirect'] = $redirect_path;
+  $form_state['redirect'] = entity_forum_topic_discussion_path($topic);
 }
 
 /**
@@ -1158,10 +1106,9 @@ function entity_forum_post_attachments($entity_type, $entity_id) {
 /**
  * Builds reply/edit/delete links for a post, if the current user has access.
  *
- * The "Reply" link targets the standalone reply form page; its htmx
- * attributes open it in the modal instead when JS is available. Replying
- * to the opening post starts a new thread (no reply_to); replying to a
- * reply threads under it.
+ * The "Reply" link targets the reply form page. Replying to the opening
+ * post starts a new thread (no reply_to); replying to a reply threads
+ * under it.
  *
  * @param string $type
  *   'topic' or 'reply'.
@@ -1187,17 +1134,15 @@ function _entity_forum_post_links($type, $entity_or_row, $topic = NULL) {
       'title' => t('Reply'),
       'href' => $reply_path,
       'query' => isset($options['query']) ? $options['query'] : array(),
-      'attributes' => _entity_forum_modal_link_attributes(url($reply_path, $options)),
     );
   }
   // Report: logged-in members flag someone else's post for moderator
-  // attention — modal via htmx, standalone page without JS.
+  // attention.
   if (user_is_logged_in() && $entity_or_row->author_uid != $GLOBALS['user']->uid) {
     $report_path = "forum-report/$type/$id";
     $links['report'] = array(
       'title' => t('Report'),
       'href' => $report_path,
-      'attributes' => _entity_forum_modal_link_attributes(url($report_path)),
     );
   }
   // Close/reopen for the topic author ("mark as sold") in forums that
@@ -1259,7 +1204,9 @@ function entity_forum_topic_toggle_closed($topic) {
  * Form builder: post a new topic from within a forum.
  *
  * A lightweight version of the admin topic form: the forum is fixed and
- * moderation controls are hidden.
+ * moderation controls are hidden. The topic type comes from the forum, so
+ * there is nothing to choose — posting looks the same as it did before types
+ * existed.
  *
  * @param EntityForumForum $forum
  *   The forum the topic will be posted in.
@@ -1267,8 +1214,12 @@ function entity_forum_topic_toggle_closed($topic) {
 function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
   $form_state['forum'] = $forum;
   if (!isset($form_state['topic'])) {
+    // The type must be set before field_attach_form(): it is the bundle, so
+    // it decides which widgets the form gets.
+    $topic_type = entity_forum_forum_topic_type($forum);
     $form_state['topic'] = entity_create('entity_forum_topic', array(
       'forum_id' => (int) $forum->id(),
+      'type' => $topic_type->type,
     ));
   }
 
@@ -1285,8 +1236,9 @@ function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
     '#required' => TRUE,
   );
 
-  // Widgets for any fields a site has attached to topics.
+  // Widgets for any fields a site has attached to this topic type.
   field_attach_form('entity_forum_topic', $form_state['topic'], $form, $form_state);
+  entity_forum_apply_extra_field_weights($form, 'entity_forum_topic', $form_state['topic']->type);
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -1334,14 +1286,10 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
     $form_state['redirect'] = 'forum/' . $topic->forum_id;
   }
   elseif (!$topic->status) {
-    // Scheduled (presave unpublished it: start date in the future). The
-    // author can still view their own topic page, which repeats the
-    // scheduling notice.
-    $schedule = entity_forum_topic_schedule($topic);
-    backdrop_set_message(t('Your topic %title has been saved and is scheduled to be published on @date.', array(
-      '%title' => $topic->title,
-      '@date' => $schedule['start'] !== NULL ? format_date($schedule['start'], 'medium') : format_date(REQUEST_TIME, 'medium'),
-    )));
+    // Unpublished by something other than the moderation hold — another
+    // module's presave, say. The author can still view their own topic
+    // page, which repeats the notice.
+    backdrop_set_message(t('Your topic %title has been saved but is not published yet; it is visible only to you and the moderators.', array('%title' => $topic->title)));
     $form_state['redirect'] = 'topic/' . $topic->id();
   }
   else {
@@ -1351,24 +1299,18 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
 }
 
 /**
- * Form builder: post a reply (standalone page or htmx modal).
+ * Form builder: post a reply.
  *
- * Supports threading via a ?reply_to=N query parameter pointing at the
- * reply being answered. Served two ways from topic/N/reply:
- * - Full page (no JS): everything, including attached-field widgets.
- * - htmx modal (HX-Request): a quick reply — body only, because file
- *   widgets (managed_file) depend on core ajax.js which is not wired up
- *   inside swapped fragments; a link to the full form covers the rest.
- *   The form posts through htmx back into the dialog, so validation
- *   errors re-render in place; success redirects the whole browser via
- *   the HX-Redirect header.
+ * One reply form, served as its own page from topic/N/reply. Supports
+ * threading via a ?reply_to=N query parameter pointing at the reply being
+ * answered. Any fields a site has attached to the reply type are always
+ * present — there is no cut-down variant to keep in step with this one.
  *
  * @param EntityForumTopic $topic
  *   The topic being replied to.
  */
 function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
   $form_state['topic'] = $topic;
-  $is_htmx = _entity_forum_is_htmx_request();
 
   $reply_to = 0;
   if (isset($_GET['reply_to']) && ctype_digit((string) $_GET['reply_to'])) {
@@ -1396,30 +1338,20 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
   );
 
   if (!isset($form_state['reply'])) {
+    // The type must be set here, not left to hook_entity_presave(): it is
+    // the bundle, so field_attach_form() below needs it to know which
+    // widgets this reply gets. Presave re-derives it from the topic anyway,
+    // which keeps saves honest whatever built them.
     $form_state['reply'] = entity_create('entity_forum_reply', array(
       'topic_id' => (int) $topic->id(),
       'forum_id' => (int) $topic->forum_id,
+      'type' => $topic->type,
     ));
   }
 
-  if ($is_htmx) {
-    // Quick reply: post back into the dialog via htmx (form token and
-    // build id travel in the fragment, so FAPI security is untouched).
-    $query = backdrop_get_query_parameters();
-    $form['#attributes']['hx-post'] = url(current_path(), $query ? array('query' => $query) : array());
-    $form['#attributes']['hx-target'] = '#entity-forum-dialog-content';
-    $form['#attributes']['hx-swap'] = 'innerHTML';
-    if (field_info_instances('entity_forum_reply', 'entity_forum_reply')) {
-      $form['full_form_link'] = array(
-        '#markup' => '<div class="entity-forum-full-form-link">' . l(t('Need to attach files? Use the full reply form.'), 'topic/' . $topic->id() . '/reply', $reply_to ? array('query' => array('reply_to' => $reply_to)) : array()) . '</div>',
-        '#weight' => 5,
-      );
-    }
-  }
-  else {
-    // Widgets for any fields a site has attached to replies.
-    field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
-  }
+  // Widgets for any fields a site has attached to this reply type.
+  field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
+  entity_forum_apply_extra_field_weights($form, 'entity_forum_reply', $form_state['reply']->type);
 
   $form['actions'] = array('#type' => 'actions', '#weight' => 10);
   $form['actions']['submit'] = array(
@@ -1431,24 +1363,13 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
 
 /**
  * Validation for entity_forum_reply_frontend_form(): attached fields.
- *
- * Field widgets are only present on the full (non-htmx) form; the htmx
- * quick reply posts back with the HX-Request header, so both build and
- * validate see the same structure.
  */
 function entity_forum_reply_frontend_form_validate($form, &$form_state) {
-  if (!_entity_forum_is_htmx_request()) {
-    field_attach_form_validate('entity_forum_reply', $form_state['reply'], $form, $form_state);
-  }
+  field_attach_form_validate('entity_forum_reply', $form_state['reply'], $form, $form_state);
 }
 
 /**
  * Submit handler for entity_forum_reply_frontend_form().
- *
- * htmx submissions end with an HX-Redirect header instead of a normal
- * 302: the XHR would transparently follow a Location redirect and dump
- * the whole topic page inside the dialog, whereas HX-Redirect makes
- * htmx navigate the browser itself.
  */
 function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $topic = $form_state['topic'];
@@ -1470,9 +1391,7 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
     $reply->pending = 1;
     $reply->pending_reason = substr((string) $hold['reason'], 0, 64);
   }
-  if (!_entity_forum_is_htmx_request()) {
-    field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
-  }
+  field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
   $reply->save();
 
   backdrop_set_message($held
@@ -1484,20 +1403,6 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   // return to the node page, normal topics to the topic page.
   $redirect_path = entity_forum_topic_discussion_path($topic);
   $redirect_options = $held ? array() : array('fragment' => 'reply-' . $reply->id());
-
-  if (_entity_forum_is_htmx_request()) {
-    // Custom header instead of HX-Redirect: the redirect target is
-    // usually the page the user is already on plus a #reply-N fragment,
-    // and htmx's HX-Redirect just assigns location.href — a hash-only
-    // change scrolls without reloading, leaving the dialog open and the
-    // new reply invisible. The module's JS closes the dialog and forces
-    // a real reload when the path is unchanged. Direct header():
-    // backdrop_add_http_header() queues for page delivery, which this
-    // early exit bypasses.
-    header('X-EntityForum-Redirect: ' . url($redirect_path, $redirect_options));
-    backdrop_exit();
-  }
-
   $form_state['redirect'] = array($redirect_path, $redirect_options);
 }
 
@@ -1678,4 +1583,30 @@ function entity_forum_posting_name_form_submit($form, &$form_state) {
     entity_forum_posting_status_save($form['#account'], $form_state['values']['entity_forum_posting_status']);
   }
   backdrop_set_message(t('Your forum settings have been saved.'));
+}
+
+/**
+ * Renders a forum description through its text format.
+ *
+ * Accepts an entity or a plain DB row, since the forums index and sub-forum
+ * lists work from light queries rather than loaded entities — both must
+ * select description_format alongside description.
+ *
+ * A description saved before formats existed, or one from a row that somehow
+ * lacks a format, falls back to the site's default format rather than being
+ * printed raw: these values were entered as plain text and escaped on
+ * output, so any markup in them was never live and must not become live now.
+ *
+ * @param object $forum
+ *   A forum entity or a row with description and description_format.
+ *
+ * @return string
+ *   Rendered description markup, or '' when empty.
+ */
+function _entity_forum_format_description($forum) {
+  if (empty($forum->description)) {
+    return '';
+  }
+  $format = !empty($forum->description_format) ? $forum->description_format : filter_default_format();
+  return check_markup($forum->description, $format);
 }

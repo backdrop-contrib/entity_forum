@@ -140,7 +140,13 @@ function entity_forum_schema() {
         'type' => 'text',
         'size' => 'medium',
         'not null' => FALSE,
-        'description' => 'Plain-text description of the forum.',
+        'description' => 'Description of the forum, run through description_format.',
+      ),
+      'description_format' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => FALSE,
+        'description' => 'Text format machine name for the description, so a forum description can carry markup like any other rich text.',
       ),
       'status' => array(
         'type' => 'int',
@@ -201,6 +207,13 @@ function entity_forum_schema() {
         'default' => 0,
         'description' => 'Whether topic authors may close/reopen their own topics in this forum (classified ads: mark as sold).',
       ),
+      'topic_type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'entity_forum_topic',
+        'description' => 'The topic type every topic posted in this forum takes. Set on the forum, so posting never asks: a classifieds forum holds classified ads. Use a sub-forum for a different kind of topic.',
+      ),
       'listed' => array(
         'type' => 'int',
         'size' => 'tiny',
@@ -225,6 +238,13 @@ function entity_forum_schema() {
         'not null' => TRUE,
         'unsigned' => TRUE,
         'description' => 'Primary Key: Unique topic ID.',
+      ),
+      'type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'entity_forum_topic',
+        'description' => 'The topic type (bundle): the machine name of an entity_forum topic type. Never empty — entity_extract_ids() throws on a missing bundle.',
       ),
       'title' => array(
         'type' => 'varchar',
@@ -368,6 +388,7 @@ function entity_forum_schema() {
       'listing' => array('listing'),
       'pending' => array('pending'),
       'node_id' => array('node_id'),
+      'type' => array('type'),
     ),
   );
 
@@ -379,6 +400,13 @@ function entity_forum_schema() {
         'not null' => TRUE,
         'unsigned' => TRUE,
         'description' => 'Primary Key: Unique reply ID.',
+      ),
+      'type' => array(
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'default' => 'entity_forum_topic',
+        'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in a Classified topic is a Classified reply, so a site can give it its own fields (an offer amount, say). Never empty — entity_extract_ids() throws on a missing bundle.',
       ),
       'content' => array(
         'type' => 'text',
@@ -462,6 +490,7 @@ function entity_forum_schema() {
     'indexes' => array(
       'status' => array('status'),
       'topic_id' => array('topic_id'),
+      'type' => array('type'),
       'forum_id' => array('forum_id'),
       'author_uid' => array('author_uid'),
       'reply_to_id' => array('reply_to_id'),
@@ -832,4 +861,264 @@ function entity_forum_update_1008() {
   }
   // Rebuild the schema cache so entity saves see the new column at once.
   backdrop_get_complete_schema(TRUE);
+}
+
+/**
+ * Removes the topic scheduling settings and cron state.
+ *
+ * Scheduling published topics on a start date and closed/delisted them
+ * after an end date, driven by two site-wide date field names. It was
+ * removed as policy that does not belong in a general forum module: "show
+ * only ads that are currently running" is a Views filter, which each site
+ * expresses on its own display without the module mutating content on
+ * cron. No schema change — the columns it wrote to (status, closed,
+ * listing) are all still used by other features.
+ */
+function entity_forum_update_1009() {
+  $config = config('entity_forum.settings');
+  $config->clear('schedule_start_field');
+  $config->clear('schedule_end_field');
+  $config->clear('schedule_duration');
+  $config->save();
+  state_del('entity_forum_schedule_last_run');
+}
+
+/**
+ * Adds the topic type (bundle) column and puts existing topics on it.
+ *
+ * Topics were a single-bundle entity type: Field API used the entity type
+ * name as the bundle name, so every field instance landed on every topic.
+ * The new 'type' column is the bundle key, letting a site define its own
+ * topic types and attach fields per type.
+ *
+ * The default type is deliberately named 'entity_forum_topic' — the bundle
+ * name field instances already use — so this update is a column backfill
+ * only: no field_config_instance rewrite and no config churn. The column is
+ * NOT NULL with that default, because entity_extract_ids() throws
+ * EntityMalformedException on a topic whose bundle property is empty.
+ */
+function entity_forum_update_1010() {
+  if (!db_field_exists('entity_forum_topic', 'type')) {
+    db_add_field('entity_forum_topic', 'type', array(
+      'type' => 'varchar',
+      'length' => 32,
+      'not null' => TRUE,
+      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+      'description' => 'The topic type (bundle): the machine name of an entity_forum topic type. Never empty — entity_extract_ids() throws on a missing bundle.',
+    ), array(
+      'indexes' => array(
+        'type' => array('type'),
+      ),
+    ));
+  }
+
+  // db_add_field() backfills every existing row with the column default, so
+  // this normally matches nothing. It is kept as a guard for a re-run, or a
+  // row that arrived without a type from somewhere else.
+  db_update('entity_forum_topic')
+    ->fields(array('type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT))
+    ->condition(db_or()
+      ->condition('type', '')
+      ->isNull('type'))
+    ->execute();
+
+  // Rebuild the schema cache so entity saves see the new column at once:
+  // backdrop_write_record() silently drops fields missing from the cache.
+  backdrop_get_complete_schema(TRUE);
+
+  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_topic} WHERE type = :type', array(
+    ':type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+  ))->fetchField();
+
+  return t('Added the topic type column; @count topic(s) are on the %type type.', array(
+    '@count' => $count,
+    '%type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+  ));
+}
+
+/**
+ * Creates the default topic type config.
+ *
+ * Topic types are config (entity_forum.type.*). A module's default config is
+ * only copied into active config at install time, so a site that already had
+ * entity_forum installed needs the default type written here — otherwise it
+ * would run on the synthesised fallback in entity_forum_topic_types() and the
+ * type would not be editable or exportable.
+ */
+function entity_forum_update_1011() {
+  $config = config('entity_forum.type.' . ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
+  if ($config->isNew()) {
+    $config->set('type', ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
+    $config->set('label', 'Topic');
+    $config->set('description', 'The standard discussion topic.');
+    $config->save();
+  }
+  entity_forum_topic_types_reset();
+}
+
+/**
+ * Adds the per-forum allowed topic types column.
+ *
+ * A forum may restrict which topic types can be posted in it — the generic,
+ * UI-driven replacement for scoping fields to specific forums. Existing
+ * forums are left with no restriction (NULL), which is identical in effect
+ * today because a site upgrading has exactly one topic type, and keeps the
+ * "untick everything = allow everything" convention the module uses already.
+ */
+function entity_forum_update_1012() {
+  if (!db_field_exists('entity_forum_forum', 'topic_types')) {
+    db_add_field('entity_forum_forum', 'topic_types', array(
+      'type' => 'text',
+      'size' => 'medium',
+      'not null' => FALSE,
+      'serialize' => TRUE,
+      'description' => 'Serialized array of the topic type machine names that may be posted in this forum. An empty array or NULL means every type is allowed.',
+    ));
+  }
+  // Rebuild the schema cache so entity saves see the new column at once:
+  // backdrop_write_record() silently drops fields missing from the cache.
+  backdrop_get_complete_schema(TRUE);
+}
+
+/**
+ * Removes the htmx reply modal settings.
+ *
+ * The modal is gone: two ways to post a reply was a UX split, and the
+ * fragment could not carry field widgets (managed_file needs core ajax.js,
+ * which is not wired into swapped fragments), so a site's reply fields were
+ * silently missing from the quick reply. There is now one reply form, at
+ * topic/N/reply, which always carries the reply type's fields.
+ */
+function entity_forum_update_1013() {
+  $config = config('entity_forum.settings');
+  $config->clear('htmx_cdn');
+  $config->clear('htmx_cdn_url');
+  $config->save();
+}
+
+/**
+ * Adds the reply type (bundle) column and derives it from each topic.
+ *
+ * Replies are bundleable so a site can give a kind of reply its own fields —
+ * an "Offer amount" on replies to a classified ad, meaningless on a normal
+ * reply. The type is DERIVED from the reply's topic rather than chosen, and
+ * denormalized onto the row exactly like forum_id, so no chooser and no
+ * second type system are needed: a reply in a Classified topic is a
+ * Classified reply.
+ */
+function entity_forum_update_1014() {
+  if (!db_field_exists('entity_forum_reply', 'type')) {
+    db_add_field('entity_forum_reply', 'type', array(
+      'type' => 'varchar',
+      'length' => 32,
+      'not null' => TRUE,
+      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+      'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id.',
+    ), array(
+      'indexes' => array(
+        'type' => array('type'),
+      ),
+    ));
+  }
+
+  // Derive every existing reply's type from its topic in one statement.
+  // The column default already covers the common case (one topic type), but
+  // a site that added types before this update needs the real mapping.
+  db_query('UPDATE {entity_forum_reply} r INNER JOIN {entity_forum_topic} t ON t.topic_id = r.topic_id SET r.type = t.type');
+
+  // Orphan replies (topic already gone) keep the default rather than an
+  // empty bundle, which entity_extract_ids() would throw on.
+  db_update('entity_forum_reply')
+    ->fields(array('type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT))
+    ->condition(db_or()->condition('type', '')->isNull('type'))
+    ->execute();
+
+  backdrop_get_complete_schema(TRUE);
+
+  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_reply}')->fetchField();
+  return t('Added the reply type column; @count reply/replies typed from their topic.', array('@count' => $count));
+}
+
+/**
+ * Replaces the per-forum allowed topic types list with a single topic type.
+ *
+ * The type is now a property of the FORUM, set when the forum is created, so
+ * posting never asks which kind of topic this is: a classifieds forum holds
+ * classified ads, and a forum wanting a different kind of topic gets a
+ * sub-forum. This retires the allowed-types list, the post-time chooser page
+ * and the type-in-URL route.
+ *
+ * Forums keep whichever type they already allowed (the first, if several); a
+ * forum with no restriction takes the default type — which is what it
+ * effectively had anyway.
+ */
+function entity_forum_update_1015() {
+  if (!db_field_exists('entity_forum_forum', 'topic_type')) {
+    db_add_field('entity_forum_forum', 'topic_type', array(
+      'type' => 'varchar',
+      'length' => 32,
+      'not null' => TRUE,
+      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+      'description' => 'The topic type every topic posted in this forum takes.',
+    ));
+  }
+
+  // Carry over the old serialized allow-list: take the first type that still
+  // exists, else leave the default.
+  if (db_field_exists('entity_forum_forum', 'topic_types')) {
+    $known = array_keys(entity_forum_topic_types());
+    foreach (db_query('SELECT forum_id, topic_types FROM {entity_forum_forum}') as $row) {
+      $allowed = $row->topic_types ? @unserialize($row->topic_types) : array();
+      if (!is_array($allowed)) {
+        continue;
+      }
+      $allowed = array_values(array_intersect(array_filter($allowed), $known));
+      if ($allowed) {
+        db_update('entity_forum_forum')
+          ->fields(array('topic_type' => $allowed[0]))
+          ->condition('forum_id', $row->forum_id)
+          ->execute();
+      }
+    }
+    db_drop_field('entity_forum_forum', 'topic_types');
+  }
+
+  backdrop_get_complete_schema(TRUE);
+  return t('Forums now take a single topic type, set on the forum.');
+}
+
+/**
+ * Gives forum descriptions a text format.
+ *
+ * The description was plain text rendered with check_plain(), so a forum
+ * could not carry so much as a link. It is now an ordinary formatted text
+ * value like topic and reply bodies, editable with whatever editor the
+ * chosen format uses.
+ *
+ * Existing descriptions are assigned the site's default format. That is the
+ * safe direction: they were entered as plain text and were escaped on
+ * output, so any stray markup in them was never live and must not become
+ * live now — the default format's filters (escaping/limited HTML) keep it
+ * inert unless a site deliberately re-saves with a richer format.
+ */
+function entity_forum_update_1016() {
+  if (!db_field_exists('entity_forum_forum', 'description_format')) {
+    db_add_field('entity_forum_forum', 'description_format', array(
+      'type' => 'varchar',
+      'length' => 255,
+      'not null' => FALSE,
+      'description' => 'Text format machine name for the description.',
+    ));
+  }
+  $default_format = filter_default_format();
+  $updated = db_update('entity_forum_forum')
+    ->fields(array('description_format' => $default_format))
+    ->isNull('description_format')
+    ->condition('description', '', '<>')
+    ->execute();
+  backdrop_get_complete_schema(TRUE);
+  return t('Forum descriptions now use a text format; @count existing description(s) set to %format.', array(
+    '@count' => $updated,
+    '%format' => $default_format,
+  ));
 }

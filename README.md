@@ -56,15 +56,20 @@ Out of the box the module ships role-based permissions:
 
 ### Granular, per-field permissions (Field Permissions)
 
-Entity Forum works with the contrib
-[**Field Permissions**](https://backdropcms.org/project/field_permissions)
-module for finer-grained control. Because the forum entity types are fieldable,
-enabling Field Permissions lets you control access **per field**: edit a field
-(e.g. `field_attachments` or a custom `field_image`) and set it to *Custom
-permissions*, and Field Permissions automatically adds
-create / edit / edit-own / view / view-own permissions for that field to the
-permissions page — so, for example, you can allow only certain roles to add
-attachments.
+**To limit who can see or set a field, use the contrib
+[Field Permissions](https://backdropcms.org/project/field_permissions)
+module.** Because the forum entity types are fieldable, it lets you control
+access **per field**: edit a field (an attachment field, say, or a
+classified ad's price) and set it to *Custom permissions*, and Field
+Permissions automatically adds create / edit / edit-own / view / view-own
+permissions for that field to the permissions page — so you can, for
+example, let only certain roles add attachments, or show an offer amount
+only to the seller and the moderators.
+
+> **Not Content Access.** Content Access is a *node* access module — it
+> works through the node access system, and Entity Forum's forums, topics
+> and replies are not nodes, so it has no effect on them. Field
+> Permissions is the module that applies here.
 
 Entity Forum bridges its author information so the *"own"* variants work
 correctly on forum posts (its `hook_entity_load()` exposes the post author as a
