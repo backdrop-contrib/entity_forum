@@ -197,9 +197,15 @@ function entity_forum_forum_page($forum) {
   // activity), embedded so site builders can adjust the columns at
   // admin/structure/views. Access checks, breadcrumbs, subforums and the
   // "Post new topic" button stay in this page callback.
-  $build['topics'] = array(
-    '#markup' => '<div class="entity-forum-topics">' . views_embed_view('entity_forum_topics', 'default', $forum->id()) . '</div>',
-  );
+  //
+  // A container forum takes no topics, so the list would always be empty —
+  // showing "No topics in this forum yet" under a list of sub-forums reads
+  // as a fault rather than a design.
+  if (!entity_forum_forum_is_container($forum)) {
+    $build['topics'] = array(
+      '#markup' => '<div class="entity-forum-topics">' . views_embed_view('entity_forum_topics', 'default', $forum->id()) . '</div>',
+    );
+  }
 
   // Let other modules alter the forum page (the topic list itself is the
   // entity_forum_topics view — alter that via the Views UI or views hooks).
@@ -1217,6 +1223,18 @@ function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
     // The type must be set before field_attach_form(): it is the bundle, so
     // it decides which widgets the form gets.
     $topic_type = entity_forum_forum_topic_type($forum);
+    if (!$topic_type) {
+      // A container forum. entity_forum_topic_create_access() already keeps
+      // the route shut, so this is unreachable in normal use — but building
+      // a bundle-less topic would throw EntityMalformedException, and a
+      // blank form is a kinder failure than a fatal.
+      $form['container'] = array(
+        '#markup' => '<div class="entity-forum-closed">' . t('%forum does not take topics; post in one of its sub-forums instead.', array(
+          '%forum' => $forum->label(),
+        )) . '</div>',
+      );
+      return $form;
+    }
     $form_state['topic'] = entity_create('entity_forum_topic', array(
       'forum_id' => (int) $forum->id(),
       'type' => $topic_type->type,

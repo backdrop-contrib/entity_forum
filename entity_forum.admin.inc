@@ -307,14 +307,16 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#default_value' => !empty($forum->author_close),
   );
 
-  $topic_type_options = entity_forum_topic_type_labels();
+  $current_type = entity_forum_forum_topic_type($forum);
+  $topic_type_options = array(
+    ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE => t('- None: sub-forums only -'),
+  ) + entity_forum_topic_type_labels();
   $form['topic_type'] = array(
     '#type' => 'select',
     '#title' => t('Topic type'),
     '#options' => $topic_type_options,
-    '#default_value' => entity_forum_forum_topic_type($forum)->type,
-    '#required' => TRUE,
-    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a classifieds forum can have a price while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. For a different kind of topic, add a sub-forum. Applies to this forum only, not its sub-forums.', array(
+    '#default_value' => $current_type ? $current_type->type : ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE,
+    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a classifieds forum can have a price while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. Choose <em>None</em> for a forum that only groups sub-forums, like a "Classified Adverts" heading above For Sale and Wanted: nobody can post in it. Applies to this forum only, not its sub-forums.', array(
       '@types' => url('admin/structure/entity-forum/topic-types'),
     )),
   );
@@ -338,9 +340,30 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
 }
 
 /**
- * Validation for entity_forum_forum_form(): attached fields.
+ * Validation for entity_forum_forum_form(): container rule + attached fields.
+ *
+ * A forum cannot become a container while it still holds topics: they would
+ * be stranded — still readable, but with nothing listing them and no way to
+ * add to the discussion. Same principle as refusing to delete a topic type
+ * that is still in use.
  */
 function entity_forum_forum_form_validate($form, &$form_state) {
+  $forum = $form_state['forum'];
+
+  if (!$forum->isNew() && $form_state['values']['topic_type'] === ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE) {
+    // Every topic, not just the listed ones: entity_forum_forum_topic_count()
+    // tallies only normal-listing topics, so a forum holding nothing but
+    // held or unlisted topics would look empty and orphan them silently.
+    $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_topic} WHERE forum_id = :id', array(
+      ':id' => $forum->id(),
+    ))->fetchField();
+    if ($count) {
+      form_set_error('topic_type', format_plural($count,
+        'This forum cannot take <em>None</em> as its topic type: it still holds 1 topic. Move or delete it first.',
+        'This forum cannot take <em>None</em> as its topic type: it still holds @count topics. Move or delete them first.'));
+    }
+  }
+
   field_attach_form_validate('entity_forum_forum', $form_state['forum'], $form, $form_state);
 }
 
@@ -558,14 +581,27 @@ function entity_forum_topic_form_validate($form, &$form_state) {
   $topic = $form_state['topic'];
   if (!empty($form_state['values']['forum_id'])) {
     $forum = entity_load('entity_forum_forum', $form_state['values']['forum_id']);
-    if ($forum && entity_forum_forum_topic_type($forum)->type !== $topic->type) {
+    if ($forum) {
       $types = entity_forum_topic_types();
-      form_set_error('forum_id', t('%forum takes %forum_type topics, but this is a %type topic. Choose a forum that takes %type topics, or change the type on the <a href="@forum">forum</a>.', array(
-        '%forum' => $forum->label(),
-        '%forum_type' => entity_forum_forum_topic_type($forum)->label,
-        '%type' => isset($types[$topic->type]) ? $types[$topic->type]->label : $topic->type,
-        '@forum' => url('admin/content/entity-forum/forum/' . $forum->id() . '/edit'),
-      )));
+      $forum_type = entity_forum_forum_topic_type($forum);
+      $topic_label = isset($types[$topic->type]) ? $types[$topic->type]->label : $topic->type;
+      $forum_edit = url('admin/content/entity-forum/forum/' . $forum->id() . '/edit');
+
+      if (!$forum_type) {
+        // A container: takes no topics at all, of any type.
+        form_set_error('forum_id', t('%forum only groups sub-forums and takes no topics. Choose one of its sub-forums, or give it a topic type on the <a href="@forum">forum</a>.', array(
+          '%forum' => $forum->label(),
+          '@forum' => $forum_edit,
+        )));
+      }
+      elseif ($forum_type->type !== $topic->type) {
+        form_set_error('forum_id', t('%forum takes %forum_type topics, but this is a %type topic. Choose a forum that takes %type topics, or change the type on the <a href="@forum">forum</a>.', array(
+          '%forum' => $forum->label(),
+          '%forum_type' => $forum_type->label,
+          '%type' => $topic_label,
+          '@forum' => $forum_edit,
+        )));
+      }
     }
   }
 

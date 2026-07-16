@@ -109,9 +109,13 @@ class EntityForumForum extends Entity {
    *
    * Set on the forum, so posting never asks which kind of topic this is — a
    * classifieds forum holds classified ads. A forum wanting a different kind
-   * of topic gets a sub-forum. Read it through
-   * entity_forum_forum_topic_type(), which falls back to the default type if
-   * this names a type that has since been deleted.
+   * of topic gets a sub-forum.
+   *
+   * EMPTY (ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE) means the forum takes no
+   * topics at all: a container grouping sub-forums. Distinct from naming a
+   * type that has since been deleted, which falls back to the default type —
+   * same column, opposite outcomes. Read it through
+   * entity_forum_forum_topic_type(), which resolves both.
    *
    * @var string
    */
@@ -137,7 +141,12 @@ class EntityForumForum extends Entity {
     if (!isset($this->author_uid)) {
       $this->author_uid = $GLOBALS['user']->uid;
     }
-    if (empty($this->topic_type)) {
+    // isset(), NOT empty(): '' is a meaningful value here — a container
+    // forum that takes no topics — and empty('') is TRUE, so an empty()
+    // check would silently retype every container back to the default on
+    // load, because this constructor also runs when PDO builds a loaded row.
+    // Only a genuinely new forum (no property at all) gets the default.
+    if (!isset($this->topic_type)) {
       $this->topic_type = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
     }
   }

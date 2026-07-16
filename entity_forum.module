@@ -26,6 +26,16 @@
 define('ENTITY_FORUM_TOPIC_TYPE_DEFAULT', 'entity_forum_topic');
 
 /**
+ * A forum's topic_type when it accepts no topics at all.
+ *
+ * The "- None -" option on the forum form: the forum is a container holding
+ * only sub-forums, the phpBB/bbPress "category". Deliberately the empty
+ * string rather than a reserved machine name, so it can never collide with a
+ * type a site creates.
+ */
+define('ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE', '');
+
+/**
  * Topic listing modes: how a topic appears in forum topic lists.
  *
  * - normal: listed for everyone who can view the forum.
@@ -828,12 +838,38 @@ function entity_forum_topic_type_usage($machine_name) {
  *   The topic type object.
  */
 function entity_forum_forum_topic_type($forum) {
-  $types = entity_forum_topic_types();
   $machine_name = isset($forum->topic_type) ? (string) $forum->topic_type : '';
-  if ($machine_name !== '' && isset($types[$machine_name])) {
+
+  // Empty is a DELIBERATE choice — "- None -" on the forum form — meaning a
+  // container forum that holds only sub-forums. Distinct from the case
+  // below, and the two must never be collapsed: same column, opposite
+  // outcomes.
+  if ($machine_name === ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE) {
+    return FALSE;
+  }
+
+  $types = entity_forum_topic_types();
+  if (isset($types[$machine_name])) {
     return $types[$machine_name];
   }
+
+  // Names a type that has since been deleted. Fall back to the default
+  // rather than treat it as a container: deleting a type must not silently
+  // stop people posting where they always could.
   return $types[ENTITY_FORUM_TOPIC_TYPE_DEFAULT];
+}
+
+/**
+ * Whether a forum only contains sub-forums (no topics can be posted).
+ *
+ * @param EntityForumForum $forum
+ *   The forum to check.
+ *
+ * @return bool
+ *   TRUE when the forum is a container.
+ */
+function entity_forum_forum_is_container($forum) {
+  return entity_forum_forum_topic_type($forum) === FALSE;
 }
 
 /**
@@ -1605,7 +1641,11 @@ function entity_forum_topic_view_access($topic) {
  *   Whether access is granted.
  */
 function entity_forum_topic_create_access($forum) {
-  return $forum->status
+  // A container forum takes no topics at all. Checked here, in the one gate
+  // the post links, the posting route and the forms all read, so nothing
+  // else has to know about containers.
+  return !entity_forum_forum_is_container($forum)
+    && $forum->status
     && entity_forum_forum_access('view', $forum)
     && user_access('create entity forum topic')
     && entity_forum_user_posting_status() !== ENTITY_FORUM_POSTING_SUSPENDED;
