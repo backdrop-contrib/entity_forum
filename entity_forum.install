@@ -1151,3 +1151,81 @@ function entity_forum_update_1017() {
   backdrop_get_complete_schema(TRUE);
   return t('Forums can now choose the view display that renders their topic list.');
 }
+/**
+ * Secure field-attached files that private forums' posts already use.
+ *
+ * The privacy gate used to resolve a file's forum only through {file_usage}
+ * rows this module wrote itself (module 'entity_forum'). Files arriving
+ * through a file or image field are recorded by core as module 'file', so the
+ * gate abstained on them and they stayed in public:// — served directly by the
+ * web server, forum privacy never consulted. Any site that attached a file
+ * field to a topic or reply type has been publishing its private forums'
+ * uploads by direct URL.
+ *
+ * The gate is now keyed on the usage's type rather than its module, so this
+ * pass only has to move the files it previously ignored.
+ *
+ * FIELD files only (module 'file'): a file referenced from inside post content
+ * has its URL baked into the body text and must never be moved — see
+ * entity_forum_rescheme_post_files().
+ */
+function entity_forum_update_1018() {
+  $fids = db_query("SELECT DISTINCT fid FROM {file_usage} WHERE module = 'file' AND type IN ('entity_forum_topic', 'entity_forum_reply')")->fetchCol();
+  $moved = 0;
+  foreach ($fids as $fid) {
+    $file = file_load($fid);
+    if ($file && entity_forum_rescheme_file($file)) {
+      $moved++;
+    }
+  }
+  if (!file_stream_wrapper_valid_scheme('private')) {
+    return t('No private file system is configured, so nothing could be secured. Configure one at admin/config/media/file-system and run this update again — until then, private forums\' attachments remain readable by direct URL.');
+  }
+  return t('@count file(s) belonging to private forums\' posts moved into the private file system.', array('@count' => $moved));
+}
+
+/**
+ * Move pre-bundle reply field instances onto the default topic type.
+ *
+ * Replies became bundleable in schema 1012, taking their bundle from their
+ * TOPIC — so a reply's bundle is a topic type name. Topics needed no migration
+ * because the default type is deliberately named after the entity type
+ * ('entity_forum_topic'), so their existing instances already sat on the right
+ * key. Replies had no such luck: their pre-bundle instances were keyed to
+ * 'entity_forum_reply' (the entity type name), which is not a topic type and
+ * therefore not a bundle any reply has.
+ *
+ * The effect was silent and total — a reply field configured before 1012 still
+ * appeared in Field UI but applied to no reply at all: no widget on the form,
+ * nothing rendered, nothing saved. Nothing errored, which is why it went
+ * unnoticed.
+ *
+ * field_attach_rename_bundle() moves the instance config and any stored field
+ * data together.
+ */
+function entity_forum_update_1019() {
+  $legacy = field_info_instances('entity_forum_reply', 'entity_forum_reply');
+  if (!$legacy) {
+    return t('No pre-bundle reply field instances found; nothing to move.');
+  }
+
+  $target = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
+  // A field already instanced on the target bundle would be overwritten by the
+  // rename. Refuse rather than silently destroy the newer configuration.
+  $existing = field_info_instances('entity_forum_reply', $target);
+  $collisions = array_intersect(array_keys($legacy), array_keys($existing));
+  if ($collisions) {
+    throw new UpdateException(t('Cannot move the pre-bundle reply field(s) %fields onto the %target reply bundle: a field of the same name is already configured there. Resolve the duplicate at admin/structure/entity-forum/topic-types before running this update.', array(
+      '%fields' => implode(', ', $collisions),
+      '%target' => $target,
+    )));
+  }
+
+  field_attach_rename_bundle('entity_forum_reply', 'entity_forum_reply', $target);
+  field_info_cache_clear();
+  return t('Moved @count reply field instance(s) (@fields) onto the %target reply bundle, where replies can actually use them.', array(
+    '@count' => count($legacy),
+    '@fields' => implode(', ', array_keys($legacy)),
+    '%target' => $target,
+  ));
+}

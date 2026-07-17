@@ -1517,19 +1517,32 @@ function entity_forum_post_forum_id($type, $id) {
 /**
  * Returns the distinct forum IDs a managed file is attached to.
  *
- * Uses {file_usage} rows registered by this module (module 'entity_forum')
- * to resolve the topic/reply the file belongs to, then its forum.
+ * Resolves {file_usage} rows pointing at a topic or reply, then that post's
+ * forum.
+ *
+ * **Deliberately keyed on the usage's TYPE, never on its module.** Files
+ * reach a post through Field API, and core records those usages as module
+ * 'file' — so a module filter would make this return nothing for every field
+ * file, and entity_forum_file_download() would abstain on precisely the files
+ * it exists to protect. {file_usage} is already the generic index of "which
+ * files does this post use"; who wrote the row is not this module's business.
+ * Same rule as the Views query alter: the access check follows the DATA, not
+ * the code path that happened to create it.
+ *
+ * Rows for other entity types (forum pictures are usage rows on 'user') are
+ * ignored — entity_forum_post_forum_id() returns 0 for anything that is not a
+ * forum post.
  *
  * @param int $fid
  *   The managed file ID.
  *
  * @return array
- *   Forum IDs the file is used in (empty if the file is not a forum
- *   attachment).
+ *   Forum IDs the file is used in (empty if the file is not used by a forum
+ *   post at all).
  */
 function entity_forum_file_forums($fid) {
   $forums = array();
-  $usages = db_query("SELECT type, id FROM {file_usage} WHERE fid = :fid AND module = 'entity_forum'", array(':fid' => $fid))->fetchAll();
+  $usages = db_query("SELECT type, id FROM {file_usage} WHERE fid = :fid AND type IN ('entity_forum_topic', 'entity_forum_reply')", array(':fid' => $fid))->fetchAll();
   foreach ($usages as $u) {
     $forum_id = entity_forum_post_forum_id($u->type, $u->id);
     if ($forum_id) {
@@ -1632,13 +1645,13 @@ function entity_forum_rescheme_file($file) {
 }
 
 /**
- * Re-schemes every attachment file used by a forum's posts.
+ * Re-schemes the field files used by a forum's posts.
  *
  * Called when a forum's visibility changes so its posts' files move into
  * (or out of) private:// to match. Returns the number of files moved.
  *
  * @param int $forum_id
- *   The forum whose attachment files should be re-checked.
+ *   The forum whose files should be re-checked.
  *
  * @return int
  *   Count of files moved.
@@ -1648,7 +1661,62 @@ function entity_forum_rescheme_forum_files($forum_id) {
     FROM {file_usage} u
     LEFT JOIN {entity_forum_topic} t ON u.type = 'entity_forum_topic' AND t.topic_id = u.id
     LEFT JOIN {entity_forum_reply} r ON u.type = 'entity_forum_reply' AND r.reply_id = u.id
-    WHERE u.module = 'entity_forum' AND COALESCE(t.forum_id, r.forum_id) = :forum_id", array(':forum_id' => $forum_id))->fetchCol();
+    WHERE u.module = 'file' AND u.type IN ('entity_forum_topic', 'entity_forum_reply')
+      AND COALESCE(t.forum_id, r.forum_id) = :forum_id", array(':forum_id' => $forum_id))->fetchCol();
+  $moved = 0;
+  foreach ($fids as $fid) {
+    $file = file_load($fid);
+    if ($file && entity_forum_rescheme_file($file)) {
+      $moved++;
+    }
+  }
+  return $moved;
+}
+
+/**
+ * Re-schemes the field files a single forum post uses.
+ *
+ * Called whenever a topic or reply is saved, because **a file field decides
+ * where it uploads, and it decides once for the whole field.** A field
+ * attached to a topic type used in both a public and a private forum has one
+ * upload destination for both, so a member posting a photo to a private forum
+ * lands it in public:// — where the web server serves it directly and
+ * entity_forum_file_download() is never consulted. Privacy is a property of
+ * the FORUM, not of the field, so the post's own save is the only point that
+ * can put the file in the right scheme.
+ *
+ * **Only FIELD files (module 'file') are moved, and that distinction is
+ * load-bearing.** A field file is rendered by its formatter, which resolves
+ * the URI at render time, so moving it is invisible. A file referenced from
+ * inside post CONTENT — an inline image, whose URL is baked into the body text
+ * as characters — cannot be moved without breaking the post, and no amount of
+ * re-scheming will fix the text. Hence entity_forum's standing limitation:
+ * inline images stay public, and the gate covers the Attachments only. This
+ * rule was learned the hard way: a previous pass keyed on the module that
+ * WROTE the usage row rather than on whether the reference was baked, and
+ * duly moved 118 inline images into private://, breaking every URL that
+ * pointed at them.
+ *
+ * Contrast entity_forum_file_forums(), which deliberately ignores the module:
+ * for the ACCESS question, any reference counts. For the MOVE question, only
+ * render-time references may be touched.
+ *
+ * A no-op when the file is already correctly placed, so the common case costs
+ * one query and no I/O.
+ *
+ * @param string $entity_type
+ *   entity_forum_topic or entity_forum_reply.
+ * @param int $id
+ *   The post's entity ID.
+ *
+ * @return int
+ *   Count of files moved.
+ */
+function entity_forum_rescheme_post_files($entity_type, $id) {
+  $fids = db_query("SELECT fid FROM {file_usage} WHERE module = 'file' AND type = :type AND id = :id", array(
+    ':type' => $entity_type,
+    ':id' => $id,
+  ))->fetchCol();
   $moved = 0;
   foreach ($fids as $fid) {
     $file = file_load($fid);
@@ -2624,6 +2692,11 @@ function entity_forum_entity_insert($entity, $type) {
   if ($type === 'entity_forum_reply') {
     entity_forum_topic_recalculate_stats((int) $entity->topic_id);
   }
+  // Field files land wherever the field's upload destination says, which
+  // knows nothing about forum privacy — see entity_forum_rescheme_post_files().
+  if ($type === 'entity_forum_topic' || $type === 'entity_forum_reply') {
+    entity_forum_rescheme_post_files($type, $entity->id());
+  }
 }
 
 /**
@@ -2649,24 +2722,23 @@ function entity_forum_entity_update($entity, $type) {
   }
   if ($type === 'entity_forum_topic' && isset($entity->original) && $entity->original->forum_id != $entity->forum_id) {
     // Keep replies' denormalized forum_id in step with the topic's new
-    // forum, then re-scheme the topic's and its replies' attachments.
+    // forum. This must happen BEFORE any re-scheming: the scheme a file
+    // belongs in is read from the post's forum_id, so a stale one would
+    // re-home the replies' files to the forum the topic just left.
     db_update('entity_forum_reply')
       ->fields(array('forum_id' => (int) $entity->forum_id))
       ->condition('topic_id', (int) $entity->topic_id)
       ->execute();
     entity_get_controller('entity_forum_reply')->resetCache();
-    $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid', array(':tid' => $entity->topic_id))->fetchCol();
-    foreach (array_merge(array(array('entity_forum_topic', $entity->topic_id)), array_map(function ($rid) {
-      return array('entity_forum_reply', $rid);
-    }, $reply_ids)) as $ref) {
-      $fids = db_query("SELECT fid FROM {file_usage} WHERE module = 'entity_forum' AND type = :type AND id = :id", array(':type' => $ref[0], ':id' => $ref[1]))->fetchCol();
-      foreach ($fids as $fid) {
-        $file = file_load($fid);
-        if ($file) {
-          entity_forum_rescheme_file($file);
-        }
-      }
+    foreach (db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid', array(':tid' => $entity->topic_id))->fetchCol() as $reply_id) {
+      entity_forum_rescheme_post_files('entity_forum_reply', $reply_id);
     }
+  }
+
+  // The post's own files, every save — a new upload, or a field whose
+  // destination does not match the forum's privacy.
+  if ($type === 'entity_forum_topic' || $type === 'entity_forum_reply') {
+    entity_forum_rescheme_post_files($type, $entity->id());
   }
 }
 
@@ -2741,8 +2813,10 @@ function entity_forum_topic_recalculate_stats($topic_id) {
     ':tid2' => $topic_id,
   ))->fetchField();
 
-  // Attachments on the topic post and its published replies.
-  $attachment_count = (int) db_query("SELECT COUNT(*) FROM {file_usage} fu WHERE fu.module = 'entity_forum' AND ((fu.type = 'entity_forum_topic' AND fu.id = :tid1) OR (fu.type = 'entity_forum_reply' AND fu.id IN (SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid2 AND status = 1)))", array(
+  // Files used by the topic post and its published replies, whichever field
+  // they arrived in — the count is "how many files are on this thread", not
+  // "how many did one particular mechanism put there".
+  $attachment_count = (int) db_query("SELECT COUNT(*) FROM {file_usage} fu WHERE (fu.type = 'entity_forum_topic' AND fu.id = :tid1) OR (fu.type = 'entity_forum_reply' AND fu.id IN (SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid2 AND status = 1))", array(
     ':tid1' => $topic_id,
     ':tid2' => $topic_id,
   ))->fetchField();

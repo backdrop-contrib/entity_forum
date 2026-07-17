@@ -377,7 +377,6 @@ function _entity_forum_topic_replies_build($topic) {
         'reply-' . $reply_id,
         _entity_forum_post_links('reply', $reply, $topic),
         $highlight['prefix'] . $prefix,
-        entity_forum_post_attachments('entity_forum_reply', $reply_id),
         $reply->author_name,
         isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : '',
         $highlight['classes']
@@ -473,7 +472,6 @@ function entity_forum_node_discussion_build($topic) {
         'topic-' . $topic->id(),
         _entity_forum_post_links('topic', $topic, $topic),
         $highlight['prefix'],
-        entity_forum_post_attachments('entity_forum_topic', $topic->id()),
         $topic->author_name,
         isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
         $highlight['classes']
@@ -975,8 +973,6 @@ function _entity_forum_render_fields($entity_type, array $entities) {
  *   Rendered edit/delete links, if the user has access.
  * @param string $prefix
  *   Extra markup rendered above the byline (e.g. reply-to context).
- * @param string $attachments
- *   Rendered attachment list (see entity_forum_post_attachments()).
  * @param string $author_name
  *   Stored author_name snapshot, shown when the account is gone.
  * @param string $fields
@@ -988,7 +984,7 @@ function _entity_forum_render_fields($entity_type, array $entities) {
  * @return string
  *   Sanitized post HTML.
  */
-function _entity_forum_render_post($content, $format, $uid, $created, $html_id, $links = '', $prefix = '', $attachments = '', $author_name = '', $fields = '', array $extra_classes = array()) {
+function _entity_forum_render_post($content, $format, $uid, $created, $html_id, $links = '', $prefix = '', $author_name = '', $fields = '', array $extra_classes = array()) {
   $classes = array_merge(array('entity-forum-post'), $extra_classes);
   $output = '<div class="' . check_plain(implode(' ', $classes)) . '" id="' . check_plain($html_id) . '">';
   $output .= $prefix;
@@ -998,8 +994,9 @@ function _entity_forum_render_post($content, $format, $uid, $created, $html_id, 
   }
   $output .= '<div class="entity-forum-byline">' . entity_forum_format_byline($uid, $created, $author_name) . '</div>';
   $output .= '<div class="entity-forum-content">' . check_markup($content, $format ? $format : filter_default_format(), '', TRUE) . '</div>';
+  // Attachments arrive as ordinary fields, so they render here with every
+  // other field — the module no longer has an attachment section of its own.
   $output .= $fields;
-  $output .= $attachments;
   $output .= entity_forum_format_signature($uid);
   if ($links) {
     $output .= '<div class="entity-forum-post-links">' . $links . '</div>';
@@ -1037,77 +1034,6 @@ function _entity_forum_post_report_highlight($topic, $type, $id) {
     }
   }
   return array('prefix' => '', 'classes' => array());
-}
-
-/**
- * Renders the attachments belonging to a forum post.
- *
- * Attachments are managed files linked to the entity via {file_usage}
- * (module 'entity_forum') — the importer creates these; future upload UI
- * can use the same mechanism. Images render as thumbnails linking to the
- * full file; other types as download links with the file size.
- *
- * @param string $entity_type
- *   entity_forum_topic or entity_forum_reply.
- * @param int $entity_id
- *   The entity ID.
- *
- * @return string
- *   Rendered attachment list, or an empty string if there are none.
- */
-function entity_forum_post_attachments($entity_type, $entity_id) {
-  $fids = db_query("SELECT u.fid FROM {file_usage} u WHERE u.module = 'entity_forum' AND u.type = :type AND u.id = :id ORDER BY u.fid", array(
-    ':type' => $entity_type,
-    ':id' => $entity_id,
-  ))->fetchCol();
-  if (!$fids) {
-    return '';
-  }
-
-  // Match the old bbPress behaviour: attachments are only listed for
-  // logged-in members; visitors get a log-in prompt instead. (Note: the
-  // files themselves are still public:// — direct URLs work until the
-  // planned private-attachments task is done.)
-  if (user_is_anonymous()) {
-    return '<div class="entity-forum-attachments"><span class="entity-forum-attachments-label">' . t('Attachments:') . '</span> ' . t('You must be <a href="@login">logged in</a> to view attached files.', array(
-      '@login' => url('user/login', array('query' => backdrop_get_destination())),
-    )) . '</div>';
-  }
-
-  // @todo Give non-image attachments (e.g. .mov) a poster/placeholder
-  //   image sized like the image thumbnails, and open all attachments in
-  //   a Colorbox-style lightbox. Deferred pending a module choice.
-  $items = array();
-  foreach (file_load_multiple($fids) as $file) {
-    $url = file_create_url($file->uri);
-    if (strpos($file->filemime, 'image/') === 0) {
-      // Images: just the clickable thumbnail — the filename/size metadata
-      // is redundant next to the preview.
-      $thumbnail = theme('image_style', array(
-        'style_name' => 'thumbnail',
-        'uri' => $file->uri,
-        'alt' => $file->filename,
-      ));
-      $items[] = '<div class="entity-forum-attachment-inner">'
-        . '<div class="entity-forum-attachment entity-forum-attachment--image">'
-        . '<a href="' . check_plain($url) . '" class="entity-forum-attachment-image" title="' . check_plain($file->filename) . '">' . $thumbnail . '</a>'
-        . '</div>'
-        . '</div>';
-    }
-    else {
-      // Non-image files: filename link only (their sole identifier); size
-      // dropped.
-      $items[] = '<div class="entity-forum-attachment-inner">'
-        . '<div class="entity-forum-attachment entity-forum-attachment--file">'
-        . '<div class="entity-forum-attachment-meta"><a href="' . check_plain($url) . '" class="entity-forum-attachment-file">' . check_plain($file->filename) . '</a></div>'
-        . '</div>'
-        . '</div>';
-    }
-  }
-
-  return '<div class="entity-forum-attachments-label">' . t('Attachments:') . '</div><div class="entity-forum-attachments">'
-    . '<div class="entity-forum-attachments-list">' . implode('', $items) . '</div>'
-    . '</div>';
 }
 
 /**
