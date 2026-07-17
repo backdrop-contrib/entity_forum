@@ -1224,6 +1224,21 @@ function entity_forum_menu() {
     'weight' => 10,
     'file' => 'entity_forum.admin.inc',
   );
+  // Help tab. Backdrop core has dropped hook_help(), so this is our own menu
+  // item + page callback rather than a hook_help() implementation. The page
+  // is written as four independently-anchored audience sections (site
+  // builders, forum builders, moderators, members) so it can later be split
+  // — the moderator and member sections to frontend pages with their own
+  // access — without rewriting the content. Gated on the admin permission
+  // for now, which is why every section currently lives behind this tab.
+  $items['admin/content/entity-forum/help'] = array(
+    'title' => 'Help',
+    'page callback' => 'entity_forum_help_page',
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 20,
+    'file' => 'entity_forum.admin.inc',
+  );
 
   // Content-discussion placements: add/edit/delete a single content-type →
   // forum mapping. Keyed on the content type machine name (the node_types

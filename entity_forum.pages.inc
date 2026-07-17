@@ -6,6 +6,16 @@
  */
 
 /**
+ * Adds the frontend stylesheet.
+ *
+ * Every frontend page callback needs the same stylesheet; this one-liner
+ * keeps the path in a single place rather than repeated at each call site.
+ */
+function _entity_forum_add_css() {
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+}
+
+/**
  * Page callback: the forum index — all visible forums.
  *
  * Private forums are hidden from users without the 'view private entity forum'
@@ -17,7 +27,7 @@
 function entity_forum_forums_page() {
   $forums = db_query('SELECT forum_id, title, description, description_format, parent_id, visibility, status FROM {entity_forum_forum} WHERE status = 1 AND listed = 1 ORDER BY weight, title')->fetchAll();
 
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
   // Filter out private forums the user may not see, then group by parent.
   $children = array();
   foreach ($forums as $forum) {
@@ -128,7 +138,7 @@ function _entity_forum_set_breadcrumb($deepest_forum_id) {
  */
 function entity_forum_forum_page($forum) {
   $build = array();
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
 
   // Breadcrumb: Home > Forums > ancestor chain (the forum itself is the
   // page title, so it is not repeated as a trail link).
@@ -229,7 +239,7 @@ function entity_forum_topic_page($topic) {
     '#prefix' => '<div class="entity-forum-topic-page">',
     '#suffix' => '</div>',
   );
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
 
   if (!$topic->status) {
     // Unpublished topics are readable by moderators/admins and by their
@@ -444,7 +454,7 @@ function _entity_forum_topic_replies_build($topic) {
  *   Render array for hook_node_view().
  */
 function entity_forum_node_discussion_build($topic) {
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
   $build = array(
     '#prefix' => '<div class="entity-forum-node-discussion">',
     '#suffix' => '</div>',
@@ -523,7 +533,7 @@ function _entity_forum_reply_thread_root($reply_id, array $map) {
  *   Render array with the reply form.
  */
 function entity_forum_reply_page($topic) {
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
   backdrop_set_title(t('Reply to: @title', array('@title' => $topic->title)));
   return backdrop_get_form('entity_forum_reply_frontend_form', $topic);
@@ -545,7 +555,7 @@ function entity_forum_reply_page($topic) {
  *   Render array with the report form.
  */
 function entity_forum_report_page($type, $id) {
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
   $entity = entity_load("entity_forum_$type", $id);
   $topic = $type === 'topic' ? $entity : entity_load('entity_forum_topic', $entity->topic_id);
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
@@ -675,7 +685,7 @@ function _entity_forum_moderation_panel() {
  */
 function entity_forum_moderation_page() {
   $build = array();
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
   _entity_forum_set_breadcrumb(0);
 
   $forum_titles = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
@@ -1367,7 +1377,7 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
  */
 function entity_forum_user_posts_page($account) {
   $build = array();
-  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum.css');
+  _entity_forum_add_css();
 
   $build['posting_name_form'] = backdrop_get_form('entity_forum_posting_name_form', $account);
   $build['posting_name_form']['#weight'] = -10;

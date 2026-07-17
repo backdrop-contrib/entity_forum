@@ -16,3 +16,17 @@
 .forum-id {
     text-align: right;
 }
+
+/* Help page (admin/content/entity-forum/help). */
+
+.entity-forum-help section {
+    margin: 0 0 2.5em;
+}
+
+.entity-forum-help section > h2 {
+    margin-top: 1em;
+}
+
+.entity-forum-help .entity-forum-help-toc {
+    margin: 0 0 2em;
+}

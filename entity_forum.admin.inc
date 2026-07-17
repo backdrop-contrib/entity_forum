@@ -1463,3 +1463,177 @@ function entity_forum_topic_type_replies_page($topic_type) {
   }
   return $build;
 }
+
+/**
+ * Page callback: the Help tab (admin/content/entity-forum/help).
+ *
+ * A plain in-module help page — Backdrop core has dropped hook_help(), so
+ * this is our own page rather than a hook_help() implementation. The body is
+ * assembled from four audience helpers (site builders, forum builders,
+ * moderators, members). Keeping each audience in its own helper is
+ * deliberate: when the page is later split — the moderator and member
+ * sections becoming frontend pages with their own access — a helper is
+ * lifted whole rather than untangled from a monolithic string.
+ *
+ * @return array
+ *   Render array.
+ */
+function entity_forum_help_page() {
+  $sections = array(
+    'site-builders' => array(t('For site builders'), _entity_forum_help_site_builders()),
+    'forum-builders' => array(t('For forum builders'), _entity_forum_help_forum_builders()),
+    'moderators' => array(t('For moderators'), _entity_forum_help_moderators()),
+    'members' => array(t('For members'), _entity_forum_help_members()),
+  );
+
+  $build = array();
+  backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
+
+  // Table of contents: an in-page jump list to each audience section.
+  $toc = array();
+  foreach ($sections as $anchor => $info) {
+    $toc[] = '<a href="#entity-forum-help-' . $anchor . '">' . check_plain($info[0]) . '</a>';
+  }
+  $html = '<div class="entity-forum-help">';
+  $html .= '<p>' . t('Entity Forum ships primitives, not policy: forums, topics and replies are ordinary entities, so you shape a forum with the fields, views and permissions you already know. This page is grouped by who is doing the work.') . '</p>';
+  $html .= '<div class="entity-forum-help-toc"><strong>' . t('On this page:') . '</strong> ' . implode(' &middot; ', $toc) . '</div>';
+
+  foreach ($sections as $anchor => $info) {
+    $html .= '<section id="entity-forum-help-' . $anchor . '">';
+    $html .= '<h2>' . check_plain($info[0]) . '</h2>';
+    $html .= $info[1];
+    $html .= '</section>';
+  }
+  $html .= '</div>';
+
+  $build['help'] = array('#markup' => $html);
+  return $build;
+}
+
+/**
+ * Help content: getting the module installed and setting site-wide policy.
+ *
+ * Covers the parts a sitedev decides once — requirements, permissions, the
+ * per-field access model, and node-attached discussions — including the two
+ * traps that have no home in the README: Content Access does nothing here,
+ * and core comments must be disabled by hand on a discussion-enabled type.
+ *
+ * @return string
+ *   HTML markup.
+ */
+function _entity_forum_help_site_builders() {
+  $perms = l(t('permissions'), 'admin/config/people/permissions');
+  $settings = l(t('Settings tab'), 'admin/content/entity-forum/settings');
+
+  $html = '';
+  $html .= '<p>' . t('Requirements: the <em>entity</em>, <em>entity_plus</em> and <em>views</em> modules. Entity Forum provides the <code>forums</code>, <code>forum/*</code> and <code>topic/*</code> paths, so it cannot run alongside core <em>Forum</em> or <em>Forum NG</em> — installation is blocked while either is enabled.') . '</p>';
+
+  $html .= '<h3>' . t('Setup order') . '</h3>';
+  $html .= '<ol>';
+  $html .= '<li>' . t('Create your forums (see <em>For forum builders</em> below).') . '</li>';
+  $html .= '<li>' . t('Grant @perms — the important ones are listed next.', array('@perms' => $perms)) . '</li>';
+  $html .= '<li>' . t('Review the @settings for forum pictures, moderation and node discussions.', array('@settings' => $settings)) . '</li>';
+  $html .= '<li>' . t('Optional: add topic types and attach fields.') . '</li>';
+  $html .= '</ol>';
+
+  $html .= '<h3>' . t('Permissions') . '</h3>';
+  $html .= '<p>' . t('Grant to ordinary members: <em>Create Entity Forum topics</em> and <em>Create Entity Forum replies</em> (each also lets a member edit and delete their own posts). Grant <em>View private Entity Forums</em> to whichever roles may see private forums. Moderators need <em>Moderate Entity Forum</em>, usually combined with <em>Administer Entity Forum topics</em> and <em>replies</em> for full moderator rights. <em>Administer Entity Forum</em> is the forum-builder permission that gates this admin section.') . '</p>';
+
+  $html .= '<h3>' . t('Per-field access, and a trap') . '</h3>';
+  $html .= '<p>' . t('To let only some roles add attachments, or to show an offer amount only to the seller and moderators, install the contrib <em>Field Permissions</em> module and set permissions per field. Entity Forum bridges post authorship so the <em>own</em>-content variants work correctly on forum posts.') . '</p>';
+  $html .= '<p class="messages warning">' . t('<strong>Content Access does nothing here.</strong> It is a <em>node</em> access module and works through the node access system; forums, topics and replies are entities, not nodes, so it never runs on them. <em>Field Permissions</em> is the module that applies — installing Content Access to gate forum content will silently do nothing.') . '</p>';
+
+  $html .= '<h3>' . t('Node discussions (a comments replacement)') . '</h3>';
+  $html .= '<p>' . t('Add a placement on the @settings to give a content type a forum discussion instead of core comments. Choose a scope:', array('@settings' => $settings)) . '</p>';
+  $html .= '<ul>';
+  $html .= '<li>' . t('<strong>Every item of this type</strong> — a discussion is created for each piece of content automatically.') . '</li>';
+  $html .= '<li>' . t('<strong>Only items the author enables</strong> — adds a <em>Forum Discussions</em> checkbox to the content edit form, so a discussion appears only where it is switched on.') . '</li>';
+  $html .= '</ul>';
+  $html .= '<p class="messages warning">' . t('Either way, <strong>disable core comments on that content type yourself</strong> — the module deliberately does not touch core comment settings, so without this a node would show both.') . '</p>';
+
+  return $html;
+}
+
+/**
+ * Help content: building forums, topic types and their views.
+ *
+ * Leads with the topic-type workflow because setting the type on the FORUM
+ * is the least discoverable step in the module — posting never asks for it.
+ *
+ * @return string
+ *   HTML markup.
+ */
+function _entity_forum_help_forum_builders() {
+  $forums = l(t('Forums admin'), 'admin/content/entity-forum');
+  $types = l(t('Topic types'), 'admin/structure/entity-forum/topic-types');
+
+  $html = '';
+  $html .= '<h3>' . t('Forums and sub-forums') . '</h3>';
+  $html .= '<p>' . t('Add forums from the @forums with <em>Add forum</em>. A forum with a parent becomes a sub-forum, with post counts and breadcrumbs rolled up automatically. Mark a forum <em>private</em> and its topics, replies and file attachments all inherit that privacy.', array('@forums' => $forums)) . '</p>';
+  $html .= '<p>' . t('Setting a forum\'s topic type to <strong>- None -</strong> makes it a <em>container</em>: it groups sub-forums and takes no topics of its own (the phpBB/bbPress "category"). A forum can still hold both sub-forums and topics — being a container is a deliberate choice, never inferred from having sub-forums.') . '</p>';
+
+  $html .= '<h3>' . t('Topic types, and the step everyone misses') . '</h3>';
+  $html .= '<p>' . t('Topic types work like content types: each has its own fields, and a forum is set to one — so a Classified Adverts forum can carry a price and photos while the discussion forums stay plain. The workflow, in order:') . '</p>';
+  $html .= '<ol>';
+  $html .= '<li>' . t('Add a type on @types.', array('@types' => $types)) . '</li>';
+  $html .= '<li>' . t('Add its fields on that type\'s <em>Manage fields</em> tab.') . '</li>';
+  $html .= '<li>' . t('Add any reply fields on the type\'s <em>Replies</em> tab (a reply takes its type from the topic it is posted in, so a reply to a classified ad can carry, say, an offer amount).') . '</li>';
+  $html .= '<li>' . t('<strong>Set the type on the FORUM</strong>, on the forum edit form.') . '</li>';
+  $html .= '</ol>';
+  $html .= '<p class="messages warning">' . t('<strong>The last step is the one that catches people.</strong> Posting never asks which type to use — the forum decides — so a topic type you have built does nothing until a forum is pointed at it. A forum that wants a different kind of topic gets a sub-forum set to that type. Changing a forum\'s type does not retype topics already in it; they keep the type they were created with.') . '</p>';
+
+  $html .= '<h3>' . t('Views: copy, do not edit') . '</h3>';
+  $html .= '<p>' . t('The shipped views are meant to be <strong>copied and amended</strong>, not edited in place. Each forum picks which view display renders its topic list (on the forum edit form), so a classified-ads forum can point at a copied grid view showing an image and price while the discussion forums keep the standard topic table. Clone the <code>entity_forum_topics</code> view, shape the copy, then select that display on the forum.') . '</p>';
+  $html .= '<p>' . t('Privacy is enforced on the base tables themselves, so a copied view is safe — but always confirm a new forum view does not expose a private forum before relying on it.') . '</p>';
+
+  return $html;
+}
+
+/**
+ * Help content: the moderation tools.
+ *
+ * Written against the frontend moderation page so it lifts cleanly to a
+ * frontend help location once the page is split by audience.
+ *
+ * @return string
+ *   HTML markup.
+ */
+function _entity_forum_help_moderators() {
+  $queue = l(t('Forum moderation'), 'forums/moderation');
+
+  $html = '';
+  $html .= '<p>' . t('Moderation needs the <em>Moderate Entity Forum</em> permission (combine it with <em>Administer Entity Forum topics</em> and <em>replies</em> to edit and delete any post).') . '</p>';
+  $html .= '<h3>' . t('The queue') . '</h3>';
+  $html .= '<p>' . t('Posts held for review collect on the @queue page, reachable from the moderation panels shown above the forum lists. Each held post can be <em>approved</em> (published) or <em>kept hidden</em>.', array('@queue' => $queue)) . '</p>';
+  $html .= '<h3>' . t('Holds and suspensions') . '</h3>';
+  $html .= '<p>' . t('Set a member\'s posting status to hold their future posts for review, or to suspend them from posting altogether. A held member\'s posts still submit — they queue for approval rather than appearing at once.') . '</p>';
+  $html .= '<h3>' . t('Reports') . '</h3>';
+  $html .= '<p>' . t('Members can report a topic or reply. A reported post stays visible with a moderator-only highlight rather than being hidden automatically — a human decides. Resolve a report from the same moderation tools.') . '</p>';
+
+  return $html;
+}
+
+/**
+ * Help content: posting, replying and the member-facing features.
+ *
+ * The most frontend-oriented section; written to move to a members' help
+ * page near the forums when the split happens.
+ *
+ * @return string
+ *   HTML markup.
+ */
+function _entity_forum_help_members() {
+  $forums = l(t('Forums'), 'forums');
+
+  $html = '';
+  $html .= '<p>' . t('Browse from the @forums index. Posting needs the <em>Create Entity Forum topics</em> and <em>replies</em> permissions.', array('@forums' => $forums)) . '</p>';
+  $html .= '<ul>';
+  $html .= '<li>' . t('<strong>Start a topic</strong> from a forum\'s <em>New topic</em> link. Any fields the forum\'s topic type carries (a price, a photo) appear on the form.') . '</li>';
+  $html .= '<li>' . t('<strong>Reply</strong> from the <em>Reply</em> link on a topic or post. Replies are threaded and paged so a conversation is never split across pages.') . '</li>';
+  $html .= '<li>' . t('<strong>Report</strong> a topic or reply with its <em>Report</em> link if it needs a moderator\'s attention.') . '</li>';
+  $html .= '<li>' . t('<strong>Forum picture</strong> — set a personal avatar on the <em>Forum</em> tab of the account page; it shows on posts and in topic lists.') . '</li>';
+  $html .= '<li>' . t('<strong>Mark as sold / close</strong> — in forums that allow it, the topic author gets a self-service link to close (and reopen) their own topic, e.g. to mark a classified ad sold.') . '</li>';
+  $html .= '</ul>';
+
+  return $html;
+}
