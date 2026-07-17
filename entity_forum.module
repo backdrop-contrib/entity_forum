@@ -1225,6 +1225,35 @@ function entity_forum_menu() {
     'file' => 'entity_forum.admin.inc',
   );
 
+  // Content-discussion placements: add/edit/delete a single content-type →
+  // forum mapping. Keyed on the content type machine name (the node_types
+  // config key). These are the "Add placement" workflow behind the table on
+  // the settings page, replacing the old one-select-per-type list.
+  $items['admin/content/entity-forum/settings/discussions/add'] = array(
+    'title' => 'Add content discussion',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_node_discussion_form'),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/settings/discussions/edit/%'] = array(
+    'title' => 'Edit content discussion',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_node_discussion_form', 6),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.admin.inc',
+  );
+  $items['admin/content/entity-forum/settings/discussions/delete/%'] = array(
+    'title' => 'Delete content discussion',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_node_discussion_delete_form', 6),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.admin.inc',
+  );
+
   // Structure UI: the entity types are fieldable — these bundle admin
   // pages give Field UI somewhere to attach its "Manage fields" and
   // "Manage display" tabs, so sites can add fields (e.g. attachments)
@@ -1900,22 +1929,54 @@ function entity_forum_topic_author_close_access($topic, $account = NULL) {
 }
 
 /**
- * Returns the discussion forum configured for a content type.
+ * Returns the content-discussion placement configured for a content type.
  *
- * Content discussions (the comments replacement) are opt-in per content
- * type in the forum settings: each enabled type maps to the forum its
- * discussion topics are created in.
+ * A placement is the settings-page mapping that turns a content type into a
+ * comments replacement. It carries the forum its discussion topics live in
+ * and a scope:
+ * - 'auto': every item of the type gets a discussion, find-or-created on
+ *   first view (the original behaviour).
+ * - 'item': the discussion appears only where the author enabled it on the
+ *   node itself (a checkbox on the node form); nothing is created on view.
+ *
+ * @param string $node_type
+ *   The content type machine name.
+ *
+ * @return array|null
+ *   A normalized placement array ('forum' => int, 'scope' => 'auto'|'item'),
+ *   or NULL when the type has no placement.
+ */
+function entity_forum_node_discussion_placement($node_type) {
+  $map = config_get('entity_forum.settings', 'node_types');
+  if (!is_array($map) || !isset($map[$node_type])) {
+    return NULL;
+  }
+  $value = $map[$node_type];
+  // Legacy format: a bare forum ID meant "every item of the type".
+  if (!is_array($value)) {
+    $value = array('forum' => $value);
+  }
+  $value += array('forum' => 0, 'scope' => 'auto');
+  $value['forum'] = (int) $value['forum'];
+  if (!in_array($value['scope'], array('auto', 'item'), TRUE)) {
+    $value['scope'] = 'auto';
+  }
+  return $value;
+}
+
+/**
+ * Returns the discussion forum configured for a content type.
  *
  * @param string $node_type
  *   The content type machine name.
  *
  * @return int
- *   The forum_id discussions for this type belong to, or 0 when the
- *   type has discussions disabled.
+ *   The forum_id discussions for this type belong to, or 0 when the type
+ *   has discussions disabled.
  */
 function entity_forum_node_discussion_forum_id($node_type) {
-  $map = config_get('entity_forum.settings', 'node_types');
-  return isset($map[$node_type]) ? (int) $map[$node_type] : 0;
+  $placement = entity_forum_node_discussion_placement($node_type);
+  return $placement ? $placement['forum'] : 0;
 }
 
 /**
@@ -1998,10 +2059,24 @@ function entity_forum_node_view($node, $view_mode, $langcode) {
   if ($view_mode !== 'full' || empty($node->status) || !empty($node->in_preview)) {
     return;
   }
-  if (!entity_forum_node_discussion_forum_id($node->type)) {
+  $placement = entity_forum_node_discussion_placement($node->type);
+  if (!$placement || !$placement['forum']) {
     return;
   }
-  $topic = entity_forum_node_topic($node, TRUE);
+  // Per-item placements render only where the discussion was enabled on the
+  // node (a published attached topic exists); the topic is created from the
+  // node form, never here. Whole-type placements find-or-create on first
+  // view as before. Topic 'view' access does not consider status, so the
+  // published check is made explicitly.
+  if ($placement['scope'] === 'item') {
+    $topic = entity_forum_node_topic($node);
+    if (!$topic || !$topic->status) {
+      return;
+    }
+  }
+  else {
+    $topic = entity_forum_node_topic($node, TRUE);
+  }
   if (!$topic || !entity_forum_topic_view_access($topic)) {
     return;
   }
@@ -2025,6 +2100,85 @@ function entity_forum_node_delete($node) {
       '@tids' => implode(', ', $topic_ids),
       '@nid' => $node->nid,
     ), WATCHDOG_NOTICE);
+  }
+}
+
+/**
+ * Implements hook_form_BASE_FORM_ID_alter() for node_form.
+ *
+ * Content types whose discussion placement is scoped 'item' get a per-node
+ * checkbox — the author decides which individual pieces of content show a
+ * forum discussion. Types scoped 'auto' (every item) and types with no
+ * placement are left alone. The checkbox reflects whether a published
+ * discussion topic already exists for the node.
+ *
+ * The control gets its OWN "Forum Discussions" vertical tab, deliberately
+ * separate from core's "Comment settings" tab: a forum discussion is a
+ * distinct system from core comments (a site typically runs one or the
+ * other), and nesting inside core's tab both tied the option's visibility to
+ * the core comment permission and left core's Open/Closed tab summary — driven
+ * by core's own JS — unable to reflect our checkbox. The tab carries no live
+ * summary, keeping the module JS-free by design.
+ */
+function entity_forum_form_node_form_alter(&$form, &$form_state, $form_id) {
+  $node = $form_state['node'];
+  $placement = entity_forum_node_discussion_placement($node->type);
+  if (!$placement || !$placement['forum'] || $placement['scope'] !== 'item') {
+    return;
+  }
+
+  $forum = entity_load('entity_forum_forum', $placement['forum']);
+  $topic = entity_forum_node_topic($node);
+
+  $form['entity_forum_discussion_settings'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Forum Discussions'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#group' => 'additional_settings',
+    '#weight' => 30,
+  );
+  $form['entity_forum_discussion_settings']['entity_forum_discussion'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show a forum discussion below this content'),
+    // Pin the value key so the submit handler reads the same place no matter
+    // where the element sits in the form tree.
+    '#parents' => array('entity_forum_discussion'),
+    '#default_value' => ($topic && $topic->status),
+    '#description' => $forum
+      ? t('Members can post replies below this content, in the %forum forum. Unticking hides the discussion; any existing replies are kept.', array('%forum' => $forum->title))
+      : t('Members can post replies below this content. Unticking hides the discussion; any existing replies are kept.'),
+  );
+
+  // Runs after node_form_submit(), so the node is saved and has an nid.
+  $form['actions']['submit']['#submit'][] = 'entity_forum_node_form_discussion_submit';
+}
+
+/**
+ * Submit handler: apply the per-node "show a discussion" choice.
+ *
+ * Enabling find-or-creates the node's discussion topic and (re)publishes it;
+ * disabling unpublishes an existing topic so it stops rendering while its
+ * replies survive and re-enabling brings the same thread back. Never deletes
+ * — node deletion is the only thing that removes a discussion (hook_node_delete).
+ */
+function entity_forum_node_form_discussion_submit($form, &$form_state) {
+  $node = $form_state['node'];
+  $enabled = !empty($form_state['values']['entity_forum_discussion']);
+
+  if ($enabled) {
+    $topic = entity_forum_node_topic($node, TRUE);
+    if ($topic && !$topic->status) {
+      $topic->status = 1;
+      $topic->save();
+    }
+  }
+  else {
+    $topic = entity_forum_node_topic($node);
+    if ($topic && $topic->status) {
+      $topic->status = 0;
+      $topic->save();
+    }
   }
 }
 

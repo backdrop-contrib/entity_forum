@@ -1273,3 +1273,32 @@ function entity_forum_update_1020() {
     '@count' => $count,
   ));
 }
+
+/**
+ * Normalize content-discussion placements to the {forum, scope} format.
+ *
+ * Placements gained a per-node "scope" (auto vs item). Old placements stored
+ * a bare forum ID; convert each to array('forum' => id, 'scope' => 'auto') so
+ * existing content types keep their current every-item behaviour.
+ */
+function entity_forum_update_1021() {
+  $config = config('entity_forum.settings');
+  $map = $config->get('node_types');
+  if (!is_array($map) || !$map) {
+    return t('No content-discussion placements to convert.');
+  }
+
+  $converted = 0;
+  foreach ($map as $type => $value) {
+    if (!is_array($value)) {
+      $map[$type] = array('forum' => (int) $value, 'scope' => 'auto');
+      $converted++;
+    }
+  }
+  $config->set('node_types', $map);
+  $config->save();
+
+  return t('Converted @count content-discussion placement(s) to the scoped format.', array(
+    '@count' => $converted,
+  ));
+}

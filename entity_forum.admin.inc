@@ -838,27 +838,56 @@ function entity_forum_settings_form($form, &$form_state) {
     ),
   );
 
-  // Content discussions: the comments replacement. Each enabled content
-  // type gets its discussion topics find-or-created (unlisted) in the
-  // chosen forum and rendered below the node.
+  // Content discussions: the comments replacement. Each placement maps a
+  // content type to the forum its discussion topics are find-or-created
+  // (unlisted) in and rendered below the node. Managed as a list of
+  // placements (add/edit/delete) rather than a select per content type, so
+  // the page stays readable on sites with many content types.
   $form['node_discussions'] = array(
     '#type' => 'fieldset',
     '#title' => t('Content discussions (comments replacement)'),
     '#description' => t('Show a forum-powered discussion below content instead of core comments. A hidden ("not listed") topic is created automatically in the chosen forum the first time the content is viewed; replies appear below the content with the same reply/report tools as the forum. Disable core comments on these content types yourself.'),
   );
-  $forum_options = array(0 => t('- Disabled -')) + entity_forum_forum_options();
+
   $node_types_map = config_get('entity_forum.settings', 'node_types');
   if (!is_array($node_types_map)) {
     $node_types_map = array();
   }
-  foreach (node_type_get_types() as $node_type) {
-    $form['node_discussions']['node_type_' . $node_type->type] = array(
-      '#type' => 'select',
-      '#title' => t('@name discussions forum', array('@name' => $node_type->name)),
-      '#options' => $forum_options,
-      '#default_value' => isset($node_types_map[$node_type->type]) ? (int) $node_types_map[$node_type->type] : 0,
+  $type_names = node_type_get_names();
+  $forum_titles = entity_forum_forum_options();
+  $scope_labels = array(
+    'auto' => t('Every item of this type'),
+    'item' => t('Only items the author enables'),
+  );
+
+  $rows = array();
+  foreach (array_keys($node_types_map) as $type) {
+    $placement = entity_forum_node_discussion_placement($type);
+    $forum_id = $placement['forum'];
+    // A placement whose content type or forum has since been deleted is shown
+    // as "(missing)" so it can be found and removed, not silently hidden.
+    $rows[] = array(
+      isset($type_names[$type]) ? check_plain($type_names[$type]) : t('@type (missing)', array('@type' => $type)),
+      isset($forum_titles[$forum_id]) ? check_plain($forum_titles[$forum_id]) : t('Forum @id (missing)', array('@id' => $forum_id)),
+      $scope_labels[$placement['scope']],
+      l(t('Edit'), 'admin/content/entity-forum/settings/discussions/edit/' . $type),
+      l(t('Delete'), 'admin/content/entity-forum/settings/discussions/delete/' . $type),
     );
   }
+
+  $form['node_discussions']['table'] = array(
+    '#markup' => theme('table', array(
+      'header' => array(t('Content type'), t('Discussion forum'), t('Show on'), t('Edit'), t('Delete')),
+      'rows' => $rows,
+      'empty' => t('No content discussions configured.'),
+    )),
+  );
+  $form['node_discussions']['add'] = array(
+    '#type' => 'link',
+    '#title' => t('Add placement'),
+    '#href' => 'admin/content/entity-forum/settings/discussions/add',
+    '#attributes' => array('class' => array('button', 'button-action')),
+  );
 
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
@@ -894,19 +923,175 @@ function entity_forum_settings_form_submit($form, &$form_state) {
   }
 
   $config->set('avatar_default_fid', $fid);
-
-  // Content discussions: store only the enabled types (type => forum).
-  $node_types_map = array();
-  foreach (node_type_get_types() as $node_type) {
-    $key = 'node_type_' . $node_type->type;
-    if (!empty($form_state['values'][$key])) {
-      $node_types_map[$node_type->type] = (int) $form_state['values'][$key];
-    }
-  }
-  $config->set('node_types', $node_types_map);
-
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));
+}
+
+/**
+ * Form builder: add or edit a content-discussion placement.
+ *
+ * A placement maps one content type to the forum its discussions live in.
+ * On edit the content type is fixed (it is the config key); only the forum
+ * changes. On add, only content types without an existing placement are
+ * offered, so the list can never hold two rows for one type.
+ *
+ * @param string|null $type
+ *   The content type machine name to edit, or NULL to add a new placement.
+ *
+ * @return array
+ *   Form array.
+ */
+function entity_forum_node_discussion_form($form, &$form_state, $type = NULL) {
+  $node_types_map = config_get('entity_forum.settings', 'node_types');
+  if (!is_array($node_types_map)) {
+    $node_types_map = array();
+  }
+  $type_names = node_type_get_names();
+  $is_edit = ($type !== NULL);
+
+  if ($is_edit) {
+    if (!isset($node_types_map[$type])) {
+      backdrop_set_message(t('That content discussion does not exist.'), 'error');
+      backdrop_goto('admin/content/entity-forum/settings');
+    }
+    $form['type'] = array('#type' => 'value', '#value' => $type);
+    $form['type_display'] = array(
+      '#type' => 'item',
+      '#title' => t('Content type'),
+      '#markup' => isset($type_names[$type]) ? check_plain($type_names[$type]) : check_plain($type),
+    );
+  }
+  else {
+    // Offer only content types that are not already placed.
+    $available = array_diff_key($type_names, $node_types_map);
+    if (empty($available)) {
+      $form['none'] = array(
+        '#markup' => '<p>' . t('Every content type already has a discussion forum. Edit an existing placement instead.') . '</p>',
+      );
+      return $form;
+    }
+    $form['type'] = array(
+      '#type' => 'select',
+      '#title' => t('Content type'),
+      '#description' => t('The content whose discussion appears below it. Remember to disable core comments on this type yourself.'),
+      '#options' => $available,
+      '#required' => TRUE,
+    );
+  }
+
+  $placement = $is_edit ? entity_forum_node_discussion_placement($type) : NULL;
+
+  $form['forum_id'] = array(
+    '#type' => 'select',
+    '#title' => t('Discussion forum'),
+    '#description' => t('The forum the discussion topics are created in.'),
+    '#options' => entity_forum_forum_options(),
+    '#default_value' => $placement ? $placement['forum'] : NULL,
+    '#required' => TRUE,
+  );
+
+  $form['scope'] = array(
+    '#type' => 'radios',
+    '#title' => t('Show on'),
+    '#options' => array(
+      'auto' => t('Every item of this type'),
+      'item' => t('Only items the author enables'),
+    ),
+    '#default_value' => $placement ? $placement['scope'] : 'auto',
+    '#required' => TRUE,
+    '#description' => t('<strong>Every item</strong> creates a discussion automatically the first time each piece of content is viewed. <strong>Only items the author enables</strong> adds a checkbox to the content edit form, so a discussion appears only where it is switched on — use this to give just one page a discussion. Disable core comments on this content type yourself either way.'),
+  );
+
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save'),
+  );
+  $form['actions']['cancel'] = array(
+    '#type' => 'link',
+    '#title' => t('Cancel'),
+    '#href' => 'admin/content/entity-forum/settings',
+    '#attributes' => array('class' => array('button')),
+  );
+  return $form;
+}
+
+/**
+ * Submit handler for entity_forum_node_discussion_form().
+ *
+ * Writes the single (content type => forum id) pair into the node_types map,
+ * leaving other placements untouched.
+ */
+function entity_forum_node_discussion_form_submit($form, &$form_state) {
+  $config = config('entity_forum.settings');
+  $node_types_map = $config->get('node_types');
+  if (!is_array($node_types_map)) {
+    $node_types_map = array();
+  }
+
+  $type = $form_state['values']['type'];
+  $node_types_map[$type] = array(
+    'forum' => (int) $form_state['values']['forum_id'],
+    'scope' => $form_state['values']['scope'],
+  );
+
+  $config->set('node_types', $node_types_map);
+  $config->save();
+
+  backdrop_set_message(t('The content discussion has been saved.'));
+  $form_state['redirect'] = 'admin/content/entity-forum/settings';
+}
+
+/**
+ * Confirmation form: delete a content-discussion placement.
+ *
+ * Removes the mapping only — existing discussion topics and their replies are
+ * left in place; the content simply stops rendering its discussion.
+ *
+ * @param string $type
+ *   The content type machine name whose placement is being deleted.
+ *
+ * @return array
+ *   A confirm_form() array.
+ */
+function entity_forum_node_discussion_delete_form($form, &$form_state, $type) {
+  $node_types_map = config_get('entity_forum.settings', 'node_types');
+  if (!is_array($node_types_map) || !isset($node_types_map[$type])) {
+    backdrop_set_message(t('That content discussion does not exist.'), 'error');
+    backdrop_goto('admin/content/entity-forum/settings');
+  }
+  $type_names = node_type_get_names();
+  $label = isset($type_names[$type]) ? $type_names[$type] : $type;
+
+  $form['type'] = array('#type' => 'value', '#value' => $type);
+
+  return confirm_form(
+    $form,
+    t('Remove the discussion forum for %type?', array('%type' => $label)),
+    'admin/content/entity-forum/settings',
+    t('Content of this type will stop showing a forum discussion. Existing discussion topics and their replies are kept.'),
+    t('Remove'),
+    t('Cancel')
+  );
+}
+
+/**
+ * Submit handler for entity_forum_node_discussion_delete_form().
+ */
+function entity_forum_node_discussion_delete_form_submit($form, &$form_state) {
+  $config = config('entity_forum.settings');
+  $node_types_map = $config->get('node_types');
+  if (!is_array($node_types_map)) {
+    $node_types_map = array();
+  }
+
+  unset($node_types_map[$form_state['values']['type']]);
+
+  $config->set('node_types', $node_types_map);
+  $config->save();
+
+  backdrop_set_message(t('The content discussion has been removed.'));
+  $form_state['redirect'] = 'admin/content/entity-forum/settings';
 }
 
 /**
