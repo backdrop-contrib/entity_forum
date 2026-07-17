@@ -581,19 +581,19 @@ function entity_forum_schema() {
   );
 
   $schema['entity_forum_migrate_map'] = array(
-    'description' => 'Maps legacy WordPress bbPress post IDs to Entity Forum entity IDs, making imports idempotent.',
+    'description' => 'Maps IDs in a migration source to the Entity Forum entities imported from them, making imports idempotent and re-runnable.',
     'fields' => array(
       'entity_type' => array(
         'type' => 'varchar',
         'length' => 32,
         'not null' => TRUE,
-        'description' => 'The Entity Forum entity type the row maps to.',
+        'description' => "What kind of thing the row maps to: usually an Entity Forum entity type, but importers also use their own markers (e.g. 'file', 'user_avatar') for one-time work they must not repeat. This is the column that separates ID spaces — an importer reading two of them (bbPress replies from {wp_posts} and page comments from {wp_comments}, say) gives each its own marker so their IDs cannot collide.",
       ),
-      'wp_id' => array(
+      'source_id' => array(
         'type' => 'int',
         'not null' => TRUE,
         'unsigned' => TRUE,
-        'description' => 'The legacy {wp_posts}.ID.',
+        'description' => "The record's ID in the source system — a {wp_posts}.ID for the bbPress importer, a nid/tid/cid for a forum/forum_ng converter. Unique within its entity_type, which is what keeps two ID spaces apart.",
       ),
       'backdrop_id' => array(
         'type' => 'int',
@@ -608,7 +608,7 @@ function entity_forum_schema() {
         'description' => 'Unix timestamp of the import.',
       ),
     ),
-    'primary key' => array('entity_type', 'wp_id'),
+    'primary key' => array('entity_type', 'source_id'),
     'indexes' => array(
       'backdrop_id' => array('entity_type', 'backdrop_id'),
     ),
@@ -1151,6 +1151,7 @@ function entity_forum_update_1017() {
   backdrop_get_complete_schema(TRUE);
   return t('Forums can now choose the view display that renders their topic list.');
 }
+
 /**
  * Secure field-attached files that private forums' posts already use.
  *
@@ -1227,5 +1228,48 @@ function entity_forum_update_1019() {
     '@count' => count($legacy),
     '@fields' => implode(', ', array_keys($legacy)),
     '%target' => $target,
+  ));
+}
+
+/**
+ * Rename the migrate map's wp_id column to source_id.
+ *
+ * The map was written for the one importer that existed, so it named its key
+ * column after that importer's source system: wp_id, "the legacy
+ * {wp_posts}.ID". Converters for Backdrop's own forum, forum_ng and comments
+ * are coming, and a general forum module has no business with WordPress in its
+ * schema. Nothing but the name changes: the key stays (entity_type, source_id).
+ *
+ * Deliberately NOT a 'source' column keyed alongside it. A site migrates FROM
+ * one forum system, so two sources in one map is a fringe case — and the one
+ * case that is not fringe (an importer reading two ID spaces, e.g. bbPress
+ * replies from {wp_posts} and page comments from {wp_comments}, both landing on
+ * entity_forum_reply) shares a source anyway, so a source column would not
+ * separate them. entity_type already does: it is a "kind", which is why 'file'
+ * and 'user_avatar' exist. A converter reading a second ID space gives it its
+ * own marker.
+ */
+function entity_forum_update_1020() {
+  if (db_field_exists('entity_forum_migrate_map', 'source_id')) {
+    return t('The migrate map key column is already named source_id; nothing to do.');
+  }
+
+  // The renamed column is part of the primary key, so the key comes off before
+  // the column changes and goes back on after.
+  db_drop_primary_key('entity_forum_migrate_map');
+  db_change_field('entity_forum_migrate_map', 'wp_id', 'source_id', array(
+    'type' => 'int',
+    'not null' => TRUE,
+    'unsigned' => TRUE,
+    'description' => "The record's ID in the source system.",
+  ));
+  db_add_primary_key('entity_forum_migrate_map', array('entity_type', 'source_id'));
+
+  // db_merge() reads the cached schema.
+  backdrop_get_complete_schema(TRUE);
+
+  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_migrate_map}')->fetchField();
+  return t('Migrate map: wp_id renamed to source_id (@count row(s) unaffected).', array(
+    '@count' => $count,
   ));
 }
