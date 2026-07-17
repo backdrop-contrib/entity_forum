@@ -105,6 +105,22 @@ class EntityForumForum extends Entity {
   public $listed = 1;
 
   /**
+   * The view display rendering this forum's topic list, as "name:display_id".
+   *
+   * Empty means the shipped default, so a site that never chooses one simply
+   * follows the module. Set it to a copy of the topics view and a classifieds
+   * forum renders as an ad grid while General stays a topic table — the other
+   * half of "sitedevs copy and amend the shipped views".
+   *
+   * Read it through entity_forum_forum_topic_list_view(), which falls back to
+   * the default if the named view or display has since been deleted: no forum
+   * should ever end up with no topic list at all.
+   *
+   * @var string
+   */
+  public $topic_view = '';
+
+  /**
    * The topic type every topic posted in this forum takes.
    *
    * Set on the forum, so posting never asks which kind of topic this is — a

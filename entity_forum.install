@@ -214,6 +214,13 @@ function entity_forum_schema() {
         'default' => 'entity_forum_topic',
         'description' => 'The topic type every topic posted in this forum takes. Set on the forum, so posting never asks: a classifieds forum holds classified ads. Use a sub-forum for a different kind of topic.',
       ),
+      'topic_view' => array(
+        'type' => 'varchar',
+        'length' => 128,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default — so a site that never chooses one follows the module, and a classifieds forum can render as an ad grid while General stays a topic table. Read it through entity_forum_forum_topic_list_view(), which falls back to the default if the named view has since been deleted.',
+      ),
       'listed' => array(
         'type' => 'int',
         'size' => 'tiny',
@@ -1121,4 +1128,26 @@ function entity_forum_update_1016() {
     '@count' => $updated,
     '%format' => $default_format,
   ));
+}
+
+/**
+ * Add the per-forum topic list view column.
+ *
+ * Empty on every existing forum, which means "the shipped default" — so the
+ * upgrade changes nothing until a site chooses otherwise.
+ */
+function entity_forum_update_1017() {
+  if (!db_field_exists('entity_forum_forum', 'topic_view')) {
+    db_add_field('entity_forum_forum', 'topic_view', array(
+      'type' => 'varchar',
+      'length' => 128,
+      'not null' => TRUE,
+      'default' => '',
+      'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default.',
+    ));
+  }
+  // backdrop_write_record() silently drops fields missing from the cached
+  // schema, so the new column would never be saved without this.
+  backdrop_get_complete_schema(TRUE);
+  return t('Forums can now choose the view display that renders their topic list.');
 }

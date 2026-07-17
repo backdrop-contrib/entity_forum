@@ -324,6 +324,30 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     $form['topic_type']['#description'] .= ' <strong>' . t('Changing this does NOT retype the topics already posted here — they keep the type they were created with.') . '</strong>';
   }
 
+  $view_options = entity_forum_topic_list_view_options();
+  $form['topic_view'] = array(
+    '#type' => 'select',
+    '#title' => t('Topic list view'),
+    '#options' => array('' => t('- Default -')) + $view_options,
+    '#default_value' => isset($view_options[$forum->topic_view]) ? $forum->topic_view : '',
+    '#description' => t('The view display that renders this forum\'s list of topics. Copy the shipped topics view at <a href="@views">the views page</a> and amend it to give a forum its own list — an ad grid for a classifieds forum, say, while the others keep the standard topic table. Only displays built on topics and taking a forum ID argument are offered, since the forum is passed to the display as that argument.', array(
+      '@views' => url('admin/structure/views'),
+    )),
+    // A container forum renders no topic list, so the choice is meaningless.
+    '#states' => array(
+      'invisible' => array(
+        ':input[name="topic_type"]' => array('value' => ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE),
+      ),
+    ),
+  );
+  // Say so rather than silently showing "Default": the list this forum has
+  // been rendering is not the one it will render after the next save.
+  if ($forum->topic_view !== '' && !isset($view_options[$forum->topic_view])) {
+    $form['topic_view']['#description'] .= ' <strong>' . t('This forum was set to %view, which no longer exists — it is falling back to the default.', array(
+      '%view' => $forum->topic_view,
+    )) . '</strong>';
+  }
+
   // Widgets for any fields a site has attached to forums.
   field_attach_form('entity_forum_forum', $forum, $form, $form_state);
 
@@ -385,6 +409,7 @@ function entity_forum_forum_form_submit($form, &$form_state) {
   $forum->listed = (int) !empty($values['listed']);
   $forum->author_close = (int) !empty($values['author_close']);
   $forum->topic_type = $values['topic_type'];
+  $forum->topic_view = $values['topic_view'];
   $forum->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_forum', $forum, $form, $form_state);
   $forum->save();

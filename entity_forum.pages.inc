@@ -193,8 +193,9 @@ function entity_forum_forum_page($forum) {
     );
   }
 
-  // Topic list: the entity_forum_topics view (sticky first, then latest
-  // activity), embedded so site builders can adjust the columns at
+  // Topic list: a view display taking the forum ID as its argument, chosen on
+  // the forum (default: the shipped entity_forum_topics view — sticky first,
+  // then latest activity). Embedded so site builders can adjust the columns at
   // admin/structure/views. Access checks, breadcrumbs, subforums and the
   // "Post new topic" button stay in this page callback.
   //
@@ -202,8 +203,9 @@ function entity_forum_forum_page($forum) {
   // showing "No topics in this forum yet" under a list of sub-forums reads
   // as a fault rather than a design.
   if (!entity_forum_forum_is_container($forum)) {
+    $topic_list = entity_forum_forum_topic_list_view($forum);
     $build['topics'] = array(
-      '#markup' => '<div class="entity-forum-topics">' . views_embed_view('entity_forum_topics', 'default', $forum->id()) . '</div>',
+      '#markup' => '<div class="entity-forum-topics">' . views_embed_view($topic_list['view'], $topic_list['display'], $forum->id()) . '</div>',
     );
   }
 
@@ -278,7 +280,6 @@ function entity_forum_topic_page($topic) {
       'topic-' . $topic->id(),
       _entity_forum_post_links('topic', $topic, $topic),
       $highlight['prefix'],
-      entity_forum_post_attachments('entity_forum_topic', $topic->id()),
       $topic->author_name,
       isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
       $highlight['classes']

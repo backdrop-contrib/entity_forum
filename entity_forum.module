@@ -36,6 +36,15 @@ define('ENTITY_FORUM_TOPIC_TYPE_DEFAULT', 'entity_forum_topic');
 define('ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE', '');
 
 /**
+ * The view and display rendering a forum's topic list unless told otherwise.
+ *
+ * The shipped view, which is also the one sitedevs copy and amend. A forum
+ * storing an empty topic_view resolves to this, so the default follows the
+ * module rather than being frozen into every forum row at save time.
+ */
+define('ENTITY_FORUM_TOPIC_LIST_VIEW_DEFAULT', 'entity_forum_topics:default');
+
+/**
  * Topic listing modes: how a topic appears in forum topic lists.
  *
  * - normal: listed for everyone who can view the forum.
@@ -884,6 +893,108 @@ function entity_forum_forum_topic_type($forum) {
  */
 function entity_forum_forum_is_container($forum) {
   return entity_forum_forum_topic_type($forum) === FALSE;
+}
+
+/**
+ * Returns the view display that renders a forum's topic list.
+ *
+ * The forum page used to embed one hardcoded view display for every forum on
+ * every site. Choosing it per forum is what lets a sitedev's copy of the
+ * topics view actually be USED — a classifieds forum rendering as an ad grid
+ * while General stays a topic table — instead of only ever living on a
+ * standalone page.
+ *
+ * Falls back to the shipped default when the forum names a view or display
+ * that has since been deleted, on the same principle as
+ * entity_forum_forum_topic_type(): deleting config must not leave a forum
+ * with no topic list at all. Unlike topic_type, empty is NOT a distinct
+ * outcome here — a forum that takes no topics is already a container, and its
+ * list is not rendered either way.
+ *
+ * @param EntityForumForum $forum
+ *   The forum to inspect.
+ *
+ * @return array
+ *   Keys 'view' (view name) and 'display' (display ID).
+ */
+function entity_forum_forum_topic_list_view($forum) {
+  $stored = isset($forum->topic_view) ? (string) $forum->topic_view : '';
+  $candidates = array($stored, ENTITY_FORUM_TOPIC_LIST_VIEW_DEFAULT);
+
+  foreach ($candidates as $candidate) {
+    if ($candidate === '' || strpos($candidate, ':') === FALSE) {
+      continue;
+    }
+    list($name, $display_id) = explode(':', $candidate, 2);
+    $view = views_get_view($name);
+    if ($view && isset($view->display[$display_id])) {
+      $view->destroy();
+      return array('view' => $name, 'display' => $display_id);
+    }
+  }
+
+  // The default itself is missing — the sitedev deleted the shipped view.
+  // Return it anyway: views_embed_view() renders nothing for an unknown view,
+  // which is the honest outcome, and inventing a substitute here would only
+  // hide what they did.
+  list($name, $display_id) = explode(':', ENTITY_FORUM_TOPIC_LIST_VIEW_DEFAULT, 2);
+  return array('view' => $name, 'display' => $display_id);
+}
+
+/**
+ * Returns the view displays that can render a forum's topic list.
+ *
+ * Offers only displays that can actually do the job: built on the topic base
+ * table, and carrying a forum ID argument — the forum page embeds the display
+ * with the forum's ID, and a display with nowhere to receive it would show
+ * every forum's topics in every forum.
+ *
+ * Matched on the argument's FIELD rather than its key, because a second
+ * argument on the same column is keyed forum_id_1 (the same reason
+ * entity_forum_handler_area_post_link does it that way).
+ *
+ * @return array
+ *   Options for a select, keyed "view_name:display_id".
+ */
+function entity_forum_topic_list_view_options() {
+  $options = array();
+
+  foreach (views_get_all_views() as $name => $stub) {
+    if (!empty($stub->disabled) || $stub->base_table !== 'entity_forum_topic') {
+      continue;
+    }
+    $view = views_get_view($name);
+    if (!$view) {
+      continue;
+    }
+    $view_label = $view->human_name ? $view->human_name : $name;
+
+    foreach (array_keys($view->display) as $display_id) {
+      $view->set_display($display_id);
+      // get_option() on the display handler resolves the display's own
+      // arguments or the default display's, per what it overrides — reading
+      // display_options directly would miss that.
+      $arguments = $view->display_handler->get_option('arguments');
+      $has_forum_argument = FALSE;
+      foreach ((array) $arguments as $argument) {
+        if (isset($argument['field']) && $argument['field'] === 'forum_id') {
+          $has_forum_argument = TRUE;
+          break;
+        }
+      }
+      if (!$has_forum_argument) {
+        continue;
+      }
+      $display_label = !empty($view->display[$display_id]->display_title)
+        ? $view->display[$display_id]->display_title
+        : $display_id;
+      $options[$name . ':' . $display_id] = $view_label . ': ' . $display_label;
+    }
+    $view->destroy();
+  }
+
+  asort($options);
+  return $options;
 }
 
 /**

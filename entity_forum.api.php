@@ -9,7 +9,8 @@
  * - entity_forum_reply_frontend_form (the reply form on topic pages)
  * - entity_forum_posting_name_form (the account Forum tab)
  *
- * The topic list on forum pages is the entity_forum_topics view — change
+ * The topic list on forum pages is a view display, chosen per forum on the
+ * forum form and defaulting to the shipped entity_forum_topics view — change
  * it in the Views UI (admin/structure/views) or with the Views hooks.
  */
 
@@ -31,8 +32,8 @@ function hook_entity_forum_forums_page_alter(&$build) {
  *
  * @param array $build
  *   The page render array: 'description', 'subforums', 'new_topic'
- *   (the Post new topic link) and 'topics' (the embedded
- *   entity_forum_topics view).
+ *   (the Post new topic link) and 'topics' (the topic list view display this
+ *   forum uses — entity_forum_forum_topic_list_view() resolves which).
  * @param EntityForumForum $forum
  *   The forum being viewed.
  */
