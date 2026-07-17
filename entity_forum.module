@@ -1273,8 +1273,12 @@ function entity_forum_menu() {
   // pages give Field UI somewhere to attach its "Manage fields" and
   // "Manage display" tabs, so sites can add fields (e.g. attachments)
   // through the normal Backdrop UI.
+  // Titled "Forum structure", not "Forums": the Content section already owns
+  // "Forums" (admin/content/entity-forum), so a second identically-named
+  // entry in the admin menu is ambiguous. This is the field/display hub —
+  // core draws the same line ("Content" vs "Content types").
   $items['admin/structure/entity-forum'] = array(
-    'title' => 'Forums',
+    'title' => 'Forum structure',
     'description' => 'Manage fields and display for forums, topics and replies.',
     'page callback' => 'entity_forum_structure_page',
     'access arguments' => array('administer entity forum'),
