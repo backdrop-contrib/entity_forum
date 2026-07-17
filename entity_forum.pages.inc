@@ -283,8 +283,7 @@ function entity_forum_topic_page($topic) {
     '#prefix' => '<div class="entity-forum-topic-wrapper"><h2 class="entity-forum-topic-title">' . check_plain($topic->title) . '</h2>',
     '#suffix' => '</div>',
     '#markup' => _entity_forum_render_post(
-      $topic->content,
-      $topic->format,
+      _entity_forum_post_body_html('entity_forum_topic', $topic),
       $topic->author_uid,
       $topic->created,
       'topic-' . $topic->id(),
@@ -380,8 +379,7 @@ function _entity_forum_topic_replies_build($topic) {
       }
       $highlight = _entity_forum_post_report_highlight($topic, 'reply', $reply_id);
       $post = _entity_forum_render_post(
-        $reply->content,
-        $reply->format,
+        _entity_forum_post_body_html('entity_forum_reply', $reply),
         $reply->author_uid,
         $reply->created,
         'reply-' . $reply_id,
@@ -469,14 +467,17 @@ function entity_forum_node_discussion_build($topic) {
       : t('Discussion')) . '</h2>',
     '#weight' => -20,
   );
-  if (trim((string) $topic->content) !== '') {
+  // A node-attached discussion topic has an empty body (the node is the
+  // opening post), so its opening post is skipped; a normal topic shown as a
+  // discussion still renders its body.
+  $opening_body = _entity_forum_post_body_html('entity_forum_topic', $topic);
+  if ($opening_body !== '') {
     $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
     $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
     $build['opening'] = array(
       '#weight' => 0,
       '#markup' => _entity_forum_render_post(
-        $topic->content,
-        $topic->format,
+        $opening_body,
         $topic->author_uid,
         $topic->created,
         'topic-' . $topic->id(),
@@ -580,7 +581,8 @@ function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
   $form_state['report_entity'] = $entity;
   $form_state['report_topic'] = $topic;
 
-  $excerpt = truncate_utf8(strip_tags((string) $entity->content), 160, TRUE, TRUE);
+  $body = entity_forum_post_body_value($entity);
+  $excerpt = truncate_utf8(strip_tags($body['value']), 160, TRUE, TRUE);
   $author = entity_forum_format_author($entity->author_uid, $entity->author_name);
   $form['heading'] = array(
     '#markup' => '<h3>' . t('Report to the moderators') . '</h3>',
@@ -711,13 +713,20 @@ function entity_forum_moderation_page() {
     '#empty' => t('No topics are waiting for review.'),
   );
 
-  // Replies awaiting review, with their content rendered for reading.
-  $replies = db_query('SELECT reply_id, content, format, topic_id, author_uid, author_name, created, pending_reason FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchAll();
+  // Replies awaiting review, with their body rendered for reading. The body
+  // is a field now, so load the entities (created ASC) and render it rather
+  // than reading a column.
+  $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchCol();
+  $replies = $reply_ids ? entity_load('entity_forum_reply', $reply_ids) : array();
   $reply_rows = array();
-  foreach ($replies as $reply) {
+  foreach ($reply_ids as $reply_id) {
+    if (!isset($replies[$reply_id])) {
+      continue;
+    }
+    $reply = $replies[$reply_id];
     $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
     $reply_rows[] = array(
-      '<div class="entity-forum-moderation-content">' . check_markup($reply->content, $reply->format ? $reply->format : filter_default_format(), '', TRUE) . '</div>',
+      '<div class="entity-forum-moderation-content">' . _entity_forum_post_body_html('entity_forum_reply', $reply) . '</div>',
       $topic_title !== FALSE ? l($topic_title, 'topic/' . $reply->topic_id) : t('N/A'),
       entity_forum_format_author($reply->author_uid, $reply->author_name),
       format_date($reply->created, 'short'),
@@ -741,7 +750,8 @@ function entity_forum_moderation_page() {
     $is_topic = $report->entity_type === 'entity_forum_topic';
     $target = entity_load($report->entity_type, $report->entity_id);
     if ($target) {
-      $excerpt = truncate_utf8(strip_tags((string) $target->content), 120, TRUE, TRUE);
+      $target_body = entity_forum_post_body_value($target);
+      $excerpt = truncate_utf8(strip_tags($target_body['value']), 120, TRUE, TRUE);
       $target_cell = $is_topic
         ? l($target->title, 'topic/' . $target->id())
         : l($excerpt !== '' ? $excerpt : t('Reply #@id', array('@id' => $target->id())), 'topic/' . $target->topic_id, array('fragment' => 'reply-' . $target->id()));
@@ -960,6 +970,10 @@ function _entity_forum_render_fields($entity_type, array $entities) {
   entity_prepare_view($entity_type, $entities);
   foreach ($entities as $id => $entity) {
     $view = field_attach_view($entity_type, $entity, 'full');
+    // The body renders in the post's own content slot (see
+    // _entity_forum_post_body_html()), so keep it out of this block or it
+    // would appear twice.
+    unset($view['entity_forum_body']);
     $html = trim(backdrop_render($view));
     $rendered[$id] = $html === '' ? '' : '<div class="entity-forum-fields">' . $html . '</div>';
   }
@@ -967,12 +981,36 @@ function _entity_forum_render_fields($entity_type, array $entities) {
 }
 
 /**
+ * Renders a forum post's body field to HTML for its content slot.
+ *
+ * The body of a topic or reply is the entity_forum_body field (one instance
+ * per topic type). It is rendered here, on its own, so it can sit in the
+ * post's .entity-forum-content slot above the avatar-adjacent fields, rather
+ * than flowing in with them via _entity_forum_render_fields().
+ *
+ * @param string $entity_type
+ *   'entity_forum_topic' or 'entity_forum_reply'.
+ * @param object $entity
+ *   The loaded post entity.
+ *
+ * @return string
+ *   The rendered, sanitized body HTML, or '' when the bundle has no body
+ *   instance or the body is empty (e.g. a node-attached discussion topic).
+ */
+function _entity_forum_post_body_html($entity_type, $entity) {
+  if (!field_info_instance($entity_type, 'entity_forum_body', $entity->bundle())) {
+    return '';
+  }
+  $element = field_view_field($entity_type, $entity, 'entity_forum_body', array('label' => 'hidden'));
+  return trim(backdrop_render($element));
+}
+
+/**
  * Renders a single forum post (topic body or reply).
  *
- * @param string $content
- *   Raw post body.
- * @param string|null $format
- *   Text format machine name; falls back to the site default.
+ * @param string $body_html
+ *   The already-rendered, sanitized body HTML (see
+ *   _entity_forum_post_body_html()); '' for a post with no body.
  * @param int $uid
  *   Author user ID.
  * @param int $created
@@ -994,7 +1032,7 @@ function _entity_forum_render_fields($entity_type, array $entities) {
  * @return string
  *   Sanitized post HTML.
  */
-function _entity_forum_render_post($content, $format, $uid, $created, $html_id, $links = '', $prefix = '', $author_name = '', $fields = '', array $extra_classes = array()) {
+function _entity_forum_render_post($body_html, $uid, $created, $html_id, $links = '', $prefix = '', $author_name = '', $fields = '', array $extra_classes = array()) {
   $classes = array_merge(array('entity-forum-post'), $extra_classes);
   $output = '<div class="' . check_plain(implode(' ', $classes)) . '" id="' . check_plain($html_id) . '">';
   $output .= $prefix;
@@ -1003,7 +1041,9 @@ function _entity_forum_render_post($content, $format, $uid, $created, $html_id, 
     $output .= '<div class="entity-forum-avatar">' . $avatar . '</div>';
   }
   $output .= '<div class="entity-forum-byline">' . entity_forum_format_byline($uid, $created, $author_name) . '</div>';
-  $output .= '<div class="entity-forum-content">' . check_markup($content, $format ? $format : filter_default_format(), '', TRUE) . '</div>';
+  if ($body_html !== '') {
+    $output .= '<div class="entity-forum-content">' . $body_html . '</div>';
+  }
   // Attachments arrive as ordinary fields, so they render here with every
   // other field — the module no longer has an attachment section of its own.
   $output .= $fields;
@@ -1184,14 +1224,10 @@ function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
     '#maxlength' => 255,
     '#required' => TRUE,
   );
-  $form['content'] = array(
-    '#type' => 'text_format',
-    '#title' => t('Content'),
-    '#rows' => 10,
-    '#required' => TRUE,
-  );
 
-  // Widgets for any fields a site has attached to this topic type.
+  // The body (entity_forum_body) and any other fields a site has attached to
+  // this topic type. The body is a field now, so its widget and text format
+  // are whatever the forum builder configured on the type.
   field_attach_form('entity_forum_topic', $form_state['topic'], $form, $form_state);
   entity_forum_apply_extra_field_weights($form, 'entity_forum_topic', $form_state['topic']->type);
 
@@ -1224,8 +1260,10 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $values = $form_state['values'];
   $topic = $form_state['topic'];
   $topic->title = $values['title'];
-  $topic->content = $values['content']['value'];
-  $topic->format = $values['content']['format'];
+  // Move the field values (including the body) onto the entity BEFORE the
+  // hold decision: hook_entity_forum_post_hold_alter() receives the entity,
+  // and a content-aware rule (spam/link check) needs the body present.
+  field_attach_submit('entity_forum_topic', $topic, $form, $form_state);
   $hold = entity_forum_post_hold($topic, 'entity_forum_topic');
   $held = !empty($hold['hold']);
   if ($held) {
@@ -1233,7 +1271,6 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
     $topic->pending = 1;
     $topic->pending_reason = substr((string) $hold['reason'], 0, 64);
   }
-  field_attach_submit('entity_forum_topic', $topic, $form, $form_state);
   $topic->save();
 
   if ($held) {
@@ -1285,12 +1322,6 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
     '#type' => 'value',
     '#value' => $reply_to,
   );
-  $form['content'] = array(
-    '#type' => 'text_format',
-    '#title' => t('Reply'),
-    '#rows' => 6,
-    '#required' => TRUE,
-  );
 
   if (!isset($form_state['reply'])) {
     // The type must be set here, not left to hook_entity_presave(): it is
@@ -1304,7 +1335,9 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
     ));
   }
 
-  // Widgets for any fields a site has attached to this reply type.
+  // The body (entity_forum_body, labelled "Reply") and any other fields a
+  // site has attached to this reply type — its widget and text format are
+  // whatever the forum builder configured on the topic type.
   field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
   entity_forum_apply_extra_field_weights($form, 'entity_forum_reply', $form_state['reply']->type);
 
@@ -1331,9 +1364,10 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $values = $form_state['values'];
 
   $reply = $form_state['reply'];
-  $reply->content = $values['content']['value'];
-  $reply->format = $values['content']['format'];
   $reply->reply_to_id = (int) $values['reply_to_id'];
+  // Move the field values (including the body) onto the entity BEFORE the
+  // hold decision — see the topic submit for why.
+  field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
   // Replies can be held for moderation — by the member's 'review'
   // posting status or by another module via
   // hook_entity_forum_post_hold_alter(): pending + unpublished,
@@ -1346,7 +1380,6 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
     $reply->pending = 1;
     $reply->pending_reason = substr((string) $hold['reason'], 0, 64);
   }
-  field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
   $reply->save();
 
   backdrop_set_message($held
@@ -1432,19 +1465,28 @@ function entity_forum_user_posts_page($account) {
   );
   $build['topics_pager'] = array('#theme' => 'pager', '#element' => 0);
 
-  // Replies.
+  // Replies. The body is a field, so load this page's reply entities and read
+  // the body from them for the excerpt link (the column is gone).
   $replies = db_select('entity_forum_reply', 'r')
     ->extend('PagerDefault')
-    ->fields('r', array('reply_id', 'content', 'topic_id', 'created', 'status', 'pending'))
+    ->fields('r', array('reply_id', 'topic_id', 'created', 'status', 'pending'))
     ->condition('r.author_uid', $account->uid)
     ->orderBy('r.created', 'DESC')
     ->limit(25);
   $replies->element(1);
+  $reply_page = $replies->execute()->fetchAll();
+  $reply_ids = array();
+  foreach ($reply_page as $reply) {
+    $reply_ids[] = $reply->reply_id;
+  }
+  $reply_entities = $reply_ids ? entity_load('entity_forum_reply', $reply_ids) : array();
   $reply_rows = array();
-  foreach ($replies->execute() as $reply) {
+  foreach ($reply_page as $reply) {
     $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
+    $body = isset($reply_entities[$reply->reply_id]) ? entity_forum_post_body_value($reply_entities[$reply->reply_id]) : array('value' => '');
+    $excerpt = truncate_utf8(strip_tags($body['value']), 80, TRUE, TRUE);
     $reply_rows[] = array(
-      l(truncate_utf8(strip_tags($reply->content), 80, TRUE, TRUE), 'topic/' . $reply->topic_id, array('fragment' => 'reply-' . $reply->reply_id)),
+      l($excerpt !== '' ? $excerpt : t('Reply #@id', array('@id' => $reply->reply_id)), 'topic/' . $reply->topic_id, array('fragment' => 'reply-' . $reply->reply_id)),
       $topic_title !== FALSE ? check_plain($topic_title) : t('N/A'),
       format_date($reply->created, 'short'),
       $reply->pending ? t('Awaiting review') : ($reply->status ? t('Published') : t('Unpublished')),

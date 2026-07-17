@@ -522,16 +522,6 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL, $topic_type
     '#default_value' => $topic->title,
     '#required' => TRUE,
   );
-  $form['content'] = array(
-    '#type' => 'text_format',
-    '#title' => t('Content'),
-    '#default_value' => (string) $topic->content,
-    '#format' => $topic->format,
-    '#rows' => 10,
-    // Node-attached discussion topics have an empty body — the node is
-    // the opening post — so the body must stay optional for them.
-    '#required' => empty($topic->node_id),
-  );
   $form['forum_id'] = array(
     '#type' => 'select',
     '#title' => t('Forum'),
@@ -576,9 +566,9 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL, $topic_type
     '#description' => t('Attach this topic to a piece of content as its discussion thread, shown below the content (search by title). Usually combined with "Not shown in the forum topic list". Leave empty for a normal forum topic.'),
   );
 
-  // Widgets for any fields a site has attached to topics.
+  // The body (entity_forum_body) and any other fields attached to this type.
   field_attach_form('entity_forum_topic', $topic, $form, $form_state);
-  // Order title/content alongside the type's fields, per Field UI.
+  // Order the title alongside the type's fields, per Field UI.
   entity_forum_apply_extra_field_weights($form, 'entity_forum_topic', $topic->type);
 
   $form['actions'] = array('#type' => 'actions');
@@ -665,8 +655,6 @@ function entity_forum_topic_form_submit($form, &$form_state) {
 
   $is_new = $topic->isNew();
   $topic->title = $values['title'];
-  $topic->content = $values['content']['value'];
-  $topic->format = $values['content']['format'];
   $topic->forum_id = (int) $values['forum_id'];
   $topic->sticky = (int) $values['sticky'];
   $topic->closed = (int) $values['closed'];
@@ -725,14 +713,6 @@ function entity_forum_topic_delete_form_submit($form, &$form_state) {
 function entity_forum_reply_form($form, &$form_state, $reply) {
   $form_state['reply'] = $reply;
 
-  $form['content'] = array(
-    '#type' => 'text_format',
-    '#title' => t('Reply'),
-    '#default_value' => (string) $reply->content,
-    '#format' => $reply->format,
-    '#rows' => 6,
-    '#required' => TRUE,
-  );
   $form['status'] = array(
     '#type' => 'checkbox',
     '#title' => t('Published'),
@@ -740,7 +720,8 @@ function entity_forum_reply_form($form, &$form_state, $reply) {
     '#access' => user_access('administer entity forum reply'),
   );
 
-  // Widgets for any fields a site has attached to replies.
+  // The body (entity_forum_body, labelled "Reply") and any other fields
+  // attached to this reply type.
   field_attach_form('entity_forum_reply', $reply, $form, $form_state);
   entity_forum_apply_extra_field_weights($form, 'entity_forum_reply', $reply->type);
 
@@ -767,8 +748,6 @@ function entity_forum_reply_form_submit($form, &$form_state) {
   $reply = $form_state['reply'];
   $values = $form_state['values'];
 
-  $reply->content = $values['content']['value'];
-  $reply->format = $values['content']['format'];
   if (isset($values['status'])) {
     $reply->status = (int) $values['status'];
   }
@@ -1315,12 +1294,20 @@ function entity_forum_topic_type_form($form, &$form_state, $topic_type = NULL) {
  * Submit handler for entity_forum_topic_type_form().
  */
 function entity_forum_topic_type_form_submit($form, &$form_state) {
+  // Adding, not editing: $form_state['topic_type'] is NULL for a new type.
+  $is_new = empty($form_state['topic_type']);
   $type = (object) array(
     'type' => $form_state['values']['type'],
     'label' => $form_state['values']['label'],
     'description' => $form_state['values']['description'],
   );
   entity_forum_topic_type_save($type);
+  // A new type gets a body field on its topic and reply bundles, like core
+  // adds a body to a new content type. Only on create: re-adding on every
+  // edit would resurrect a body a forum builder had deliberately deleted.
+  if ($is_new) {
+    entity_forum_topic_type_add_body($type->type);
+  }
   backdrop_set_message(t('The topic type %label has been saved.', array('%label' => $type->label)));
   $form_state['redirect'] = 'admin/structure/entity-forum/topic-types';
 }

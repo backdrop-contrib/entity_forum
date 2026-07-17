@@ -229,18 +229,6 @@ class EntityForumTopic extends Entity {
   public $title = '';
 
   /**
-   * Body of the opening post.
-   * @var string
-   */
-  public $content = '';
-
-  /**
-   * Text format machine name for the content.
-   * @var string
-   */
-  public $format;
-
-  /**
    * Published flag (1 = published, 0 = unpublished).
    * @var int
    */
@@ -421,18 +409,6 @@ class EntityForumReply extends Entity {
    * @var string
    */
   public $type;
-
-  /**
-   * Body of the reply.
-   * @var string
-   */
-  public $content = '';
-
-  /**
-   * Text format machine name for the content.
-   * @var string
-   */
-  public $format;
 
   /**
    * Published flag (1 = published, 0 = unpublished).

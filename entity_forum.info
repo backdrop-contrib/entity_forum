@@ -7,4 +7,5 @@ configure = admin/content/entity-forum
 dependencies[] = entity
 dependencies[] = entity_plus
 dependencies[] = views
+dependencies[] = text
 php = 8.0

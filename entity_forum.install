@@ -118,6 +118,95 @@ function entity_forum_requirements($phase) {
 }
 
 /**
+ * Implements hook_install().
+ *
+ * Seeds the body field on the default topic type. A topic's and a reply's
+ * body is the entity_forum_body field rather than a base column, so a forum
+ * builder chooses its widget and text format per topic type — this is the
+ * install-time counterpart of node_add_body_field() on a fresh content type.
+ * Every topic type created afterwards seeds its own body in
+ * entity_forum_topic_type_form_submit().
+ */
+function entity_forum_install() {
+  // The module is enabled (its entity types are registered with Field API)
+  // before hook_install runs, so the body field can be attached now.
+  entity_forum_topic_type_add_body(ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
+}
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Core drops this module's own schema tables, but NOT the Field API config and
+ * storage for fields attached to its entity types, nor the config the module
+ * ships. Left behind, they orphan (a deleted topic type's field bundle and
+ * instances linger with no type) and collide on a later reinstall/reimport —
+ * `field_create_field()` finds `entity_forum_body` already present and its data
+ * table still populated. So remove it all here.
+ *
+ * This includes any fields a SITE added to forum content (attachments, a price,
+ * …): they hang off the entity types being removed, so they cannot survive.
+ * That destruction is inherent to uninstalling — the guard against doing it
+ * unawares is a warning, not a block (see the @todo in CLAUDE.md; core offers
+ * no clean way to veto an uninstall).
+ *
+ * The importer owns the forum-attachments FILES on disk, so their cleanup is
+ * its concern, not this module's; field data referencing them is removed here,
+ * which drops the file usages and lets file GC collect the now-unused files.
+ */
+function entity_forum_uninstall() {
+  // 1. Every field instance on the three entity types — the module's body
+  //    field, site-added fields, and instances on any orphaned bundle (a topic
+  //    type whose config is already gone).
+  //    Pass FALSE for $field_cleanup, NOT TRUE: core's field_delete_instance()
+  //    does count($field['bundles'][$entity_type]) in the cleanup branch AFTER
+  //    unsetting that key, which is a fatal count(null) on PHP 8 as soon as the
+  //    last instance of a field is removed (field.crud.inc ~901). It aborts the
+  //    loop mid-way and orphans the remaining instance config. We delete the
+  //    now-empty fields ourselves below instead.
+  $field_names = array();
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $entity_type) {
+    foreach (field_read_instances(array('entity_type' => $entity_type), array('include_inactive' => TRUE)) as $instance) {
+      $field_names[$instance['field_name']] = $instance['field_name'];
+      field_delete_instance($instance, FALSE);
+    }
+  }
+
+  // Delete each field that no longer has an instance anywhere — its data table
+  // is dropped by the purge below. A field a site also put on another entity
+  // type (a shared field) still has instances, so it is left alone.
+  foreach ($field_names as $field_name) {
+    if (!field_read_instances(array('field_name' => $field_name), array('include_inactive' => TRUE))) {
+      field_delete_field($field_name);
+    }
+  }
+
+  // Purge now so the field_data_*/field_revision_* tables are dropped here
+  // rather than at a later cron run.
+  field_purge_batch(10000);
+
+  // 2. Field UI bundle settings config left behind for our entity types.
+  foreach (config_get_names_with_prefix('field.bundle.entity_forum_') as $name) {
+    config($name)->delete();
+  }
+
+  // 3. The module's config: topic types (including any orphaned type config),
+  //    settings, and the shipped image styles and views.
+  $names = array(
+    'entity_forum.settings',
+    'image.style.entity_forum_avatar',
+    'image.style.entity_forum_avatar_small',
+    'views.view.entity_forum_topics',
+    'views.view.forum_replies_admin',
+  );
+  foreach (config_get_names_with_prefix('entity_forum.type.') as $name) {
+    $names[] = $name;
+  }
+  foreach ($names as $name) {
+    config($name)->delete();
+  }
+}
+
+/**
  * Implements hook_schema().
  */
 function entity_forum_schema() {
@@ -259,18 +348,9 @@ function entity_forum_schema() {
         'not null' => TRUE,
         'description' => 'The title of the topic.',
       ),
-      'content' => array(
-        'type' => 'text',
-        'size' => 'medium',
-        'not null' => FALSE,
-        'description' => 'Body of the opening post.',
-      ),
-      'format' => array(
-        'type' => 'varchar',
-        'length' => 255,
-        'not null' => FALSE,
-        'description' => 'Text format machine name for the content.',
-      ),
+      // The opening post body is the entity_forum_body field (one instance per
+      // topic type), not a column — a forum builder picks its widget and text
+      // format per type through Field UI. See entity_forum_add_body_field().
       'status' => array(
         'type' => 'int',
         'size' => 'tiny',
@@ -415,18 +495,8 @@ function entity_forum_schema() {
         'default' => 'entity_forum_topic',
         'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in a Classified topic is a Classified reply, so a site can give it its own fields (an offer amount, say). Never empty — entity_extract_ids() throws on a missing bundle.',
       ),
-      'content' => array(
-        'type' => 'text',
-        'size' => 'medium',
-        'not null' => FALSE,
-        'description' => 'Body of the reply.',
-      ),
-      'format' => array(
-        'type' => 'varchar',
-        'length' => 255,
-        'not null' => FALSE,
-        'description' => 'Text format machine name for the content.',
-      ),
+      // The reply body is the entity_forum_body field (one instance per topic
+      // type, shared with topics), not a column. See entity_forum_add_body_field().
       'status' => array(
         'type' => 'int',
         'size' => 'tiny',

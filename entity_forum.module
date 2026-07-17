@@ -582,16 +582,22 @@ function entity_forum_views_query_alter(&$view, &$query) {
 /**
  * Implements hook_field_extra_fields().
  *
- * Puts the built-in properties a sitedev actually arranges — titles and
- * bodies — into Field UI beside the attached fields, so a field can be
- * ordered relative to them. Without this the built-ins carry no weight at
- * all, and the moment ANY field has one, element_children() sorts every
- * sibling through an unstable sort: give a classified's price a low weight
- * and it appears above the title, with the title and body then landing in
- * arbitrary order. Weighting them all is what makes the form deterministic.
+ * Puts the built-in properties a sitedev actually arranges — the forum and
+ * topic titles, and the forum description — into Field UI beside the attached
+ * fields, so a field can be ordered relative to them. Without this the
+ * built-ins carry no weight at all, and the moment ANY field has one,
+ * element_children() sorts every sibling through an unstable sort: give a
+ * classified's price a low weight and it appears above the title, with the
+ * title then landing in arbitrary order. Weighting them all is what makes the
+ * form deterministic.
+ *
+ * The post BODY is not listed here: it is a real field now (entity_forum_body,
+ * per topic type), so Field UI already lays it out and — unlike an extra
+ * field — it carries widget settings, which is what lets a forum builder pick
+ * its widget and text format and lets acuity_text_formatter attach to it.
  *
  * Field UI offers no Delete for extra fields, which is exactly right: these
- * are columns, not fields, and a post cannot exist without them.
+ * are columns, not fields, and a post cannot exist without its title.
  *
  * Deliberately listed: only what a sitedev LAYS OUT. Status, weight,
  * visibility, sticky and the rest are settings they toggle, not content, and
@@ -601,11 +607,6 @@ function entity_forum_views_query_alter(&$view, &$query) {
  * _entity_forum_render_post() and the forum listings, which do not consult
  * the display settings — declaring a display context we do not honour would
  * put controls in the UI that silently do nothing.
- *
- * NOTE the limit of this hook: extra fields have no instance edit form, so
- * they cannot carry widget settings — a widget-configuring module (e.g.
- * acuity_text_formatter, which alters field_ui_field_edit_form) cannot
- * attach to them. Only real fields can. See README.
  */
 function entity_forum_field_extra_fields() {
   $extra = array();
@@ -623,26 +624,14 @@ function entity_forum_field_extra_fields() {
     ),
   );
 
-  // Topics and replies are bundleable, so every topic type gets its own set
-  // — a Classified's price can sit above its body without moving anything on
-  // an ordinary topic.
+  // Topics are bundleable, so every topic type gets its own title extra field
+  // — a Classified's price can sit above its title without moving anything on
+  // an ordinary topic. Replies have no title, so no reply entry is needed.
   foreach (array_keys(entity_forum_topic_types()) as $machine_name) {
     $extra['entity_forum_topic'][$machine_name]['form'] = array(
       'title' => array(
         'label' => t('Title'),
         'description' => t('The topic title.'),
-        'weight' => -5,
-      ),
-      'content' => array(
-        'label' => t('Content'),
-        'description' => t('The body of the opening post.'),
-        'weight' => -4,
-      ),
-    );
-    $extra['entity_forum_reply'][$machine_name]['form'] = array(
-      'content' => array(
-        'label' => t('Reply'),
-        'description' => t('The body of the reply.'),
         'weight' => -5,
       ),
     );
@@ -796,6 +785,106 @@ function entity_forum_topic_type_load($name) {
   $types = entity_forum_topic_types();
   $machine_name = strtr($name, '-', '_');
   return isset($types[$machine_name]) ? $types[$machine_name] : FALSE;
+}
+
+/**
+ * Adds the body field to one post-type bundle, creating the field if needed.
+ *
+ * The body of a topic and of a reply is a real field — entity_forum_body, a
+ * shared text_long field with one instance per bundle — rather than a base
+ * column, so a forum builder chooses its widget and text format per topic
+ * type through Field UI (and a widget-configuring module like
+ * acuity_text_formatter can attach to it, which the old built-in property
+ * could not carry). Modelled on node_add_body_field(): the field is created
+ * once and an instance per bundle, both steps idempotent so calling this for
+ * an existing bundle is a no-op.
+ *
+ * @param string $entity_type
+ *   'entity_forum_topic' or 'entity_forum_reply'.
+ * @param string $bundle
+ *   The topic type machine name — the bundle for both entity types.
+ * @param string $label
+ *   The instance label, e.g. "Content" for a topic or "Reply" for a reply.
+ *
+ * @return array
+ *   The field instance definition.
+ */
+function entity_forum_add_body_field($entity_type, $bundle, $label) {
+  // The field storage is shared across both forum post types; create it once.
+  if (!field_info_field('entity_forum_body')) {
+    field_create_field(array(
+      'field_name' => 'entity_forum_body',
+      'type' => 'text_long',
+      'entity_types' => array('entity_forum_topic', 'entity_forum_reply'),
+    ));
+  }
+
+  $instance = field_info_instance($entity_type, 'entity_forum_body', $bundle);
+  if (empty($instance)) {
+    $instance = field_create_instance(array(
+      'field_name' => 'entity_forum_body',
+      'entity_type' => $entity_type,
+      'bundle' => $bundle,
+      'label' => $label,
+      // Not required by default, exactly like core's node_add_body_field(): a
+      // forum builder ticks "Required" per type when they want to enforce it.
+      // Leaving it optional keeps node-attached discussion topics (empty body —
+      // the node is the opening post) valid without any special case, and
+      // avoids baking a posting policy into a general module.
+      'required' => FALSE,
+      'settings' => array('text_processing' => 1),
+      'widget' => array(
+        'type' => 'text_textarea',
+        'weight' => -4,
+        'settings' => array('rows' => 10),
+      ),
+    ));
+  }
+
+  return $instance;
+}
+
+/**
+ * Adds the body field to both post types for a topic type.
+ *
+ * A topic type is the bundle for topics AND their replies, so creating one
+ * seeds a "Content" body on the topic and a "Reply" body on the reply. Called
+ * when a topic type is created (and at install for the default type);
+ * idempotent, so it is safe to call again.
+ *
+ * @param string $machine_name
+ *   The topic type machine name.
+ */
+function entity_forum_topic_type_add_body($machine_name) {
+  entity_forum_add_body_field('entity_forum_topic', $machine_name, t('Content'));
+  entity_forum_add_body_field('entity_forum_reply', $machine_name, t('Reply'));
+}
+
+/**
+ * Returns a post's raw body value and text format from the body field.
+ *
+ * The single accessor for code that needs the body as data rather than as
+ * rendered output — excerpts, teasers and the moderation queue, which
+ * truncate or re-check it. Rendered output goes through
+ * _entity_forum_post_body_html() instead. Operates on a loaded entity (the
+ * body field must be attached), so it never issues its own query.
+ *
+ * @param object $entity
+ *   A loaded topic or reply entity.
+ *
+ * @return array
+ *   An array with 'value' (string body, '' when absent or empty) and
+ *   'format' (text format machine name, or NULL).
+ */
+function entity_forum_post_body_value($entity) {
+  $items = field_get_items($entity->entityType(), $entity, 'entity_forum_body');
+  if (!empty($items[0]['value'])) {
+    return array(
+      'value' => (string) $items[0]['value'],
+      'format' => isset($items[0]['format']) ? $items[0]['format'] : NULL,
+    );
+  }
+  return array('value' => '', 'format' => NULL);
 }
 
 /**
@@ -2031,9 +2120,10 @@ function entity_forum_node_topic($node, $create = FALSE) {
   if (!$forum_id || !entity_load('entity_forum_forum', $forum_id)) {
     return FALSE;
   }
+  // No body: the node itself is the opening post, so the body field is left
+  // empty (its instance is optional, so this saves cleanly).
   $topic = entity_create('entity_forum_topic', array(
     'title' => $node->title,
-    'content' => '',
     'forum_id' => $forum_id,
     'node_id' => (int) $node->nid,
     'listing' => ENTITY_FORUM_LISTING_UNLISTED,
@@ -3301,20 +3391,16 @@ function entity_forum_posting_name_save($account, $posting_name) {
 /**
  * Implements hook_views_pre_render().
  *
- * For the admin replies view (which provides the Replies tab via its own
- * page display): attaches the admin stylesheet — so it follows the view
- * wherever it is shown, including a site builder's clone — and strips
- * HTML from the content column. The Views "Strip HTML tags" rewrite
- * option can't do the strip: the column is rewritten into a link and the
- * strip runs after the rewrite, so it would remove the link itself.
+ * For the admin replies view (which provides the Replies tab via its own page
+ * display): attaches the admin stylesheet — so it follows the view wherever it
+ * is shown, including a site builder's clone.
+ *
+ * The body is a field now (entity_forum_body), so its excerpt is trimmed and
+ * HTML-stripped by the field handler's own settings rather than here — the old
+ * post-render strip of the base-table content column is gone with the column.
  */
 function entity_forum_views_pre_render(&$view) {
   if ($view->name == 'forum_replies_admin') {
     backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
-    foreach ($view->result as $row) {
-      if (isset($row->entity_forum_reply_content)) {
-        $row->entity_forum_reply_content = strip_tags($row->entity_forum_reply_content);
-      }
-    }
   }
 }
