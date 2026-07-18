@@ -1895,6 +1895,68 @@ function entity_forum_rescheme_post_files($entity_type, $id) {
 }
 
 /**
+ * Releases a deleted post's inline-image {file_usage} rows.
+ *
+ * Inline images pasted into a post body are copied local by the importer and
+ * recorded with a bare {file_usage} row under module 'entity_forum' — never
+ * 'file' (see entity_forum_rescheme_post_files()) — because the reference lives
+ * in the body TEXT, not a field. field_attach_delete() therefore cannot see
+ * them, so deleting a topic or reply would otherwise strand both the usage row
+ * and the physical file forever. This closes that gap for both single-post
+ * deletion and the batched forum cascade (each removed post re-enters
+ * hook_entity_delete).
+ *
+ * Reference-count-safe by construction: the importer writes one row per
+ * (file, post), so a file shared across several posts holds one row each.
+ * Removing only this post's row (count 0 deletes it whatever its count) frees
+ * the file for garbage collection just when its LAST referencing post is gone —
+ * file_usage_delete() marks the file temporary once no usage of any kind
+ * remains, and system_cron() then deletes it from disk.
+ *
+ * Only inline references are 'entity_forum'-owned; field attachments are module
+ * 'file' and are released by field_attach_delete() on the same delete, so this
+ * touches nothing a field manages. Inline images stay public either way — the
+ * standing limitation is unchanged; this only stops the leak of dead usage rows
+ * and their now-unreferenced files.
+ *
+ * @param string $entity_type
+ *   entity_forum_topic or entity_forum_reply.
+ * @param int $id
+ *   The deleted post's entity ID.
+ *
+ * @return int
+ *   Count of usage rows released.
+ */
+function entity_forum_release_inline_files($entity_type, $id) {
+  $id = (int) $id;
+  $fids = db_query("SELECT fid FROM {file_usage} WHERE module = 'entity_forum' AND type = :type AND id = :id", array(
+    ':type' => $entity_type,
+    ':id' => $id,
+  ))->fetchCol();
+  $released = 0;
+  foreach ($fids as $fid) {
+    $file = file_load($fid);
+    if ($file) {
+      // count 0 removes this post's row outright; file_usage_delete() then marks
+      // the file temporary if no other usage of any kind remains.
+      file_usage_delete($file, 'entity_forum', $entity_type, $id, 0);
+    }
+    else {
+      // The managed file is already gone; drop the dangling usage row so it does
+      // not linger pointing at a dead fid.
+      db_delete('file_usage')
+        ->condition('module', 'entity_forum')
+        ->condition('type', $entity_type)
+        ->condition('id', $id)
+        ->condition('fid', $fid)
+        ->execute();
+    }
+    $released++;
+  }
+  return $released;
+}
+
+/**
  * Access callback for topic entities.
  *
  * @param string $op
@@ -3131,12 +3193,16 @@ function entity_forum_entity_delete($entity, $type) {
   }
   // Reports about a deleted post are moot — remove them. Topic deletion
   // cascades to replies below, and each cascaded reply delete comes back
-  // through this hook, so reply reports are covered too.
+  // through this hook, so reply reports (and inline files, released next) are
+  // covered too.
   if (in_array($type, array('entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     db_delete('entity_forum_report')
       ->condition('entity_type', $type)
       ->condition('entity_id', (int) $entity->id())
       ->execute();
+    // Release the post's inline-image file usages (module 'entity_forum'):
+    // baked into the body text, so field_attach_delete() never sees them.
+    entity_forum_release_inline_files($type, (int) $entity->id());
   }
   if ($type === 'entity_forum_topic') {
     $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :topic_id', array(
