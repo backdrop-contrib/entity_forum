@@ -3401,6 +3401,64 @@ function entity_forum_forum_descendants($forum_id) {
 }
 
 /**
+ * Returns a forum's whole sub-tree: the forum itself plus every descendant.
+ *
+ * The forum ID is first, so a caller that needs parent-before-child order
+ * (or its reverse for child-first deletion) can rely on the shape.
+ *
+ * @param int $forum_id
+ *   The root forum.
+ *
+ * @return int[]
+ *   The forum ID followed by its descendant forum IDs.
+ */
+function entity_forum_forum_subtree_ids($forum_id) {
+  $ids = array((int) $forum_id);
+  foreach (entity_forum_forum_descendants($forum_id) as $child) {
+    $ids[] = (int) $child;
+  }
+  return $ids;
+}
+
+/**
+ * Deletes up to $limit topics belonging to any of the given forums.
+ *
+ * Deletes through the entity controller so each topic delete cascades to its
+ * replies, reports and file usages (attachments are released for garbage
+ * collection) — unlike a raw table drop. Chunked so a caller (batch op or a
+ * maintenance loop) can delete a large forum without exhausting time/memory.
+ *
+ * @param int[] $forum_ids
+ *   Forum IDs whose topics should be deleted.
+ * @param int $limit
+ *   Maximum topics to delete this call.
+ *
+ * @return int
+ *   The number of topics deleted this call (0 when none remain).
+ */
+function entity_forum_forum_delete_topics_chunk(array $forum_ids, $limit) {
+  $topic_ids = db_query_range('SELECT topic_id FROM {entity_forum_topic} WHERE forum_id IN (:ids)', 0, $limit, array(
+    ':ids' => $forum_ids,
+  ))->fetchCol();
+  if ($topic_ids) {
+    entity_get_controller('entity_forum_topic')->delete($topic_ids);
+  }
+  return count($topic_ids);
+}
+
+/**
+ * Deletes the given (expected already empty) forums through the entity layer.
+ *
+ * @param int[] $forum_ids
+ *   Forum IDs to delete.
+ */
+function entity_forum_forum_delete_forums(array $forum_ids) {
+  if ($forum_ids) {
+    entity_get_controller('entity_forum_forum')->delete($forum_ids);
+  }
+}
+
+/**
  * Renders an author name with date for forum posts.
  *
  * @param int $uid

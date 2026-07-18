@@ -112,6 +112,50 @@ function entity_forum_requirements($phase) {
         'severity' => REQUIREMENT_OK,
       );
     }
+
+    // Uninstall heads-up. Uninstalling drops every forum table AND deletes each
+    // field on forum content (with its data) irreversibly — see hook_uninstall.
+    // Backdrop offers no hook to veto or annotate the uninstall page itself, so
+    // surface what is at risk here and point the owner at the clean path: delete
+    // the forums first (each forum's Delete action removes it and everything
+    // inside it, releasing attached files as it goes). Shown only while there is
+    // forum content or extra fields to lose, and kept at INFO so a healthy site
+    // is not nagged.
+    $forum_count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_forum}')->fetchField();
+    $topic_count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_topic}')->fetchField();
+    $reply_count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_reply}')->fetchField();
+    $extra_fields = array();
+    foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $entity_type) {
+      foreach (field_info_instances($entity_type) as $bundle => $instances) {
+        foreach ($instances as $field_name => $instance) {
+          // The body is the module's own field; everything else is a field
+          // placed on forum content whose data uninstall would take with it.
+          if ($field_name !== 'entity_forum_body') {
+            $extra_fields[$field_name] = check_plain($instance['label']) . ' (' . $field_name . ')';
+          }
+        }
+      }
+    }
+    if ($forum_count || $topic_count || $reply_count || $extra_fields) {
+      $description = t('Uninstalling Entity Forum permanently deletes all forum content and cannot be undone. To remove it cleanly first, delete your forums from the <a href="@forums">forum overview</a> — each forum\'s <em>Delete</em> action removes the forum and everything inside it (topics, replies and their file attachments).', array(
+        '@forums' => url('admin/content/entity-forum'),
+      ));
+      if ($extra_fields) {
+        $description .= ' ' . t('Uninstalling will also delete these fields on forum content, along with all their data: %fields. Export anything you need to keep before uninstalling.', array(
+          '%fields' => implode(', ', $extra_fields),
+        ));
+      }
+      $requirements['entity_forum_uninstall_notice'] = array(
+        'title' => t('Entity Forum content'),
+        'value' => t('@f forum(s), @t topic(s), @r reply(ies)', array(
+          '@f' => $forum_count,
+          '@t' => $topic_count,
+          '@r' => $reply_count,
+        )),
+        'description' => $description,
+        'severity' => REQUIREMENT_INFO,
+      );
+    }
   }
 
   return $requirements;
@@ -273,6 +317,22 @@ function entity_forum_uninstall() {
   // Purge now so the field_data_*/field_revision_* tables are dropped here
   // rather than at a later cron run.
   field_purge_batch(10000);
+
+  // field_purge_batch() can strand an instance's CONFIG (left marked
+  // deleted = 1) when its field is purged before the instance is — and
+  // config_install_default_config() SKIPS any config name that already exists,
+  // so on a later reinstall the shipped field instances silently fail to
+  // re-materialise: the classified demo type would come back with only its body
+  // and none of its ad fields. Sweep every instance config still sitting on our
+  // three entity types so a reinstall imports them clean. These names are always
+  // ours (instances ON our entity types); a field a site also placed on another
+  // entity type lives under a different prefix (e.g. field.instance.node.*) and
+  // is left untouched.
+  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $entity_type) {
+    foreach (config_get_names_with_prefix('field.instance.' . $entity_type . '.') as $name) {
+      config($name)->delete();
+    }
+  }
 
   // 2. Field UI bundle settings config left behind for our entity types.
   foreach (config_get_names_with_prefix('field.bundle.entity_forum_') as $name) {

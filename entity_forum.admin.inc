@@ -428,48 +428,208 @@ function entity_forum_forum_form_submit($form, &$form_state) {
  */
 function entity_forum_forum_delete_form($form, &$form_state, $forum) {
   $form_state['forum'] = $forum;
-  return confirm_form(
+
+  // Everything the delete would take with it: the forum, its sub-forums, and
+  // every topic and reply inside the whole sub-tree. Counted once here and
+  // reused by validate/submit via $form_state.
+  $counts = _entity_forum_forum_cascade_counts($forum->id());
+  $form_state['cascade'] = $counts;
+
+  // An empty leaf forum: a plain one-shot delete, exactly as before.
+  if (_entity_forum_forum_cascade_is_empty($counts)) {
+    return confirm_form(
+      $form,
+      t('Delete forum %title?', array('%title' => $forum->title)),
+      'admin/content/entity-forum',
+      t('This action cannot be undone.'),
+      t('Delete')
+    );
+  }
+
+  // A non-empty forum (has sub-forums and/or content): offer to delete the
+  // whole sub-tree, behind an explicit confirmation. Deleting through the
+  // entity layer (not a raw table drop) is what releases attached files.
+  $items = array();
+  if ($counts['child_count']) {
+    $items[] = format_plural($counts['child_count'], '1 sub-forum', '@count sub-forums');
+  }
+  if ($counts['topic_count']) {
+    $items[] = format_plural($counts['topic_count'], '1 topic', '@count topics');
+  }
+  if ($counts['reply_count']) {
+    $items[] = format_plural($counts['reply_count'], '1 reply', '@count replies');
+  }
+  $description = t('This permanently deletes %title and everything inside it — !list — including any file attachments on those posts. This cannot be undone.', array(
+    '%title' => $forum->title,
+    '!list' => implode(', ', $items),
+  ));
+
+  $form = confirm_form(
     $form,
-    t('Delete forum %title?', array('%title' => $forum->title)),
+    t('Delete forum %title and all its contents?', array('%title' => $forum->title)),
     'admin/content/entity-forum',
-    t('This action cannot be undone.'),
-    t('Delete')
+    $description,
+    t('Delete everything')
   );
+
+  // A deliberate second action so a bulk content deletion cannot happen on a
+  // single mis-click.
+  $form['confirm_cascade'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Yes, permanently delete this forum and everything inside it.'),
+    '#default_value' => 0,
+    '#weight' => 1,
+  );
+
+  return $form;
 }
 
 /**
  * Validation for entity_forum_forum_delete_form().
  *
- * Refuses to delete a forum that still contains topics or child forums, to
- * avoid orphaning content.
+ * The empty-forum case needs no validation (a plain delete). The cascade case
+ * requires the confirmation checkbox, so a non-empty forum is never wiped on a
+ * single click.
  */
 function entity_forum_forum_delete_form_validate($form, &$form_state) {
-  $forum = $form_state['forum'];
-  $topic_count = db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE forum_id = :id', array(':id' => $forum->id()))->fetchField();
-  if ($topic_count > 0) {
-    form_set_error('', t('Forum %title still contains @count topic(s). Delete or move them first.', array(
-      '%title' => $forum->title,
-      '@count' => $topic_count,
-    )));
+  if (_entity_forum_forum_cascade_is_empty($form_state['cascade'])) {
+    return;
   }
-  $child_count = db_query('SELECT COUNT(forum_id) FROM {entity_forum_forum} WHERE parent_id = :id', array(':id' => $forum->id()))->fetchField();
-  if ($child_count > 0) {
-    form_set_error('', t('Forum %title still has @count child forum(s). Delete or re-parent them first.', array(
-      '%title' => $forum->title,
-      '@count' => $child_count,
-    )));
+  if (empty($form_state['values']['confirm_cascade'])) {
+    form_set_error('confirm_cascade', t('Tick the box to confirm you want to delete this forum and all of its contents.'));
   }
 }
 
 /**
  * Submit handler for entity_forum_forum_delete_form().
+ *
+ * Empty forum: delete it directly. Non-empty forum: run a batch that deletes
+ * the sub-tree's topics in chunks (each cascading to its replies, reports and
+ * file usages) and then the now-empty forums — batched because a large forum
+ * holds thousands of posts.
  */
 function entity_forum_forum_delete_form_submit($form, &$form_state) {
   $forum = $form_state['forum'];
   $title = $forum->title;
-  $forum->delete();
-  backdrop_set_message(t('Forum %title has been deleted.', array('%title' => $title)));
+
+  if (_entity_forum_forum_cascade_is_empty($form_state['cascade'])) {
+    $forum->delete();
+    backdrop_set_message(t('Forum %title has been deleted.', array('%title' => $title)));
+    $form_state['redirect'] = 'admin/content/entity-forum';
+    return;
+  }
+
+  $batch = array(
+    'title' => t('Deleting forum %title and its contents', array('%title' => $title)),
+    'operations' => array(
+      array('entity_forum_forum_cascade_delete_batch_op', array($form_state['cascade']['forum_ids'], $title)),
+    ),
+    'finished' => 'entity_forum_forum_cascade_delete_finished',
+    'file' => backdrop_get_path('module', 'entity_forum') . '/entity_forum.admin.inc',
+  );
+  batch_set($batch);
   $form_state['redirect'] = 'admin/content/entity-forum';
+}
+
+/**
+ * Returns the sub-tree IDs and content counts for a forum delete.
+ *
+ * @param int $forum_id
+ *   The forum being deleted.
+ *
+ * @return array
+ *   - forum_ids: the forum plus every descendant forum ID.
+ *   - child_count: number of descendant forums.
+ *   - topic_count: topics in the whole sub-tree.
+ *   - reply_count: replies to those topics.
+ */
+function _entity_forum_forum_cascade_counts($forum_id) {
+  $forum_ids = entity_forum_forum_subtree_ids($forum_id);
+  $topic_count = (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE forum_id IN (:ids)', array(
+    ':ids' => $forum_ids,
+  ))->fetchField();
+  $reply_count = (int) db_query('SELECT COUNT(r.reply_id) FROM {entity_forum_reply} r INNER JOIN {entity_forum_topic} t ON r.topic_id = t.topic_id WHERE t.forum_id IN (:ids)', array(
+    ':ids' => $forum_ids,
+  ))->fetchField();
+  return array(
+    'forum_ids' => $forum_ids,
+    'child_count' => count($forum_ids) - 1,
+    'topic_count' => $topic_count,
+    'reply_count' => $reply_count,
+  );
+}
+
+/**
+ * Whether a cascade-count set describes an empty leaf forum.
+ *
+ * @param array $counts
+ *   A set from _entity_forum_forum_cascade_counts().
+ *
+ * @return bool
+ *   TRUE when the forum has no sub-forums, topics or replies.
+ */
+function _entity_forum_forum_cascade_is_empty(array $counts) {
+  return $counts['child_count'] === 0 && $counts['topic_count'] === 0 && $counts['reply_count'] === 0;
+}
+
+/**
+ * Batch operation: delete a forum sub-tree's content, then its forums.
+ *
+ * Re-entrant: each pass deletes a chunk of topics (each topic delete cascades
+ * to its replies, reports and file usages through the entity layer), and the
+ * final pass — once no topics remain — deletes the now-empty forums.
+ *
+ * @param array $forum_ids
+ *   The forum plus every descendant forum ID.
+ * @param string $title
+ *   The root forum's title, for the completion message.
+ * @param array $context
+ *   Batch context.
+ */
+function entity_forum_forum_cascade_delete_batch_op($forum_ids, $title, &$context) {
+  $chunk = 50;
+  if (!isset($context['sandbox']['topics_total'])) {
+    $context['sandbox']['topics_total'] = (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE forum_id IN (:ids)', array(
+      ':ids' => $forum_ids,
+    ))->fetchField();
+    $context['sandbox']['topics_done'] = 0;
+    $context['results']['title'] = $title;
+    $context['results']['forums'] = count($forum_ids);
+    $context['results']['topics'] = $context['sandbox']['topics_total'];
+  }
+
+  $deleted = entity_forum_forum_delete_topics_chunk($forum_ids, $chunk);
+  if ($deleted) {
+    $context['sandbox']['topics_done'] += $deleted;
+    $total = max(1, $context['sandbox']['topics_total']);
+    // Cap below 1 so the forum-deletion pass below still gets to run.
+    $context['finished'] = min(0.99, $context['sandbox']['topics_done'] / $total);
+    $context['message'] = t('Deleted @done of @total topics…', array(
+      '@done' => $context['sandbox']['topics_done'],
+      '@total' => $context['sandbox']['topics_total'],
+    ));
+    return;
+  }
+
+  // No topics left in the sub-tree — remove the forums and finish.
+  entity_forum_forum_delete_forums($forum_ids);
+  $context['finished'] = 1;
+}
+
+/**
+ * Batch 'finished' callback for the forum cascade delete.
+ */
+function entity_forum_forum_cascade_delete_finished($success, $results, $operations) {
+  if ($success) {
+    backdrop_set_message(t('Deleted forum %title along with its @f forum(s) and @t topic(s), and all their replies and attachments.', array(
+      '%title' => $results['title'],
+      '@f' => $results['forums'],
+      '@t' => $results['topics'],
+    )));
+  }
+  else {
+    backdrop_set_message(t('The forum deletion did not finish. Some content may remain — you can run the delete again to clear it.'), 'error');
+  }
 }
 
 /**
