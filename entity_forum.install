@@ -347,6 +347,7 @@ function entity_forum_uninstall() {
     'image.style.entity_forum_avatar_small',
     'views.view.entity_forum_topics',
     'views.view.entity_forum_topics_admin',
+    'views.view.entity_forum_forums_admin',
     'views.view.forum_replies_admin',
     'views.view.forum_topics_classified',
   );

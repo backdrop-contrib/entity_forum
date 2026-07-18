@@ -10,6 +10,12 @@
     color: var(--warningred);
 }
 
+/* Forum hierarchy Views style: nesting indent on the chosen column. The style
+ * plugin also sets an inline padding-left, so this is a themer override seam. */
+.entity-forum-hierarchy-indent {
+    display: inline-block;
+}
+
 /*-----Private group forum styles ---------------------------*/
 
 

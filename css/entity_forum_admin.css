@@ -13,6 +13,14 @@
     font-weight: bold;
 }
 
+/* The Forums overview view renders the raw visibility value ("public" /
+ * "private") into a .forum-public / .forum-private cell; capitalise it so it
+ * reads "Public" / "Private" without a value-label handler. */
+.forum-public,
+.forum-private {
+    text-transform: capitalize;
+}
+
 .forum-id {
     text-align: right;
 }

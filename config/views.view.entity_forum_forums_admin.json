@@ -1,0 +1,435 @@
+{
+    "_config_name": "views.view.entity_forum_forums_admin",
+    "name": "entity_forum_forums_admin",
+    "module": "entity_forum",
+    "description": "Admin overview of forums, shown as an indented hierarchy. Provides the default Forums tab at admin/content/entity-forum; columns, filters and path are site-builder editable here.",
+    "tag": "entity_forum",
+    "disabled": false,
+    "base_table": "entity_forum_forum",
+    "human_name": "Forums (admin)",
+    "core": "1.34.2",
+    "display": {
+        "default": {
+            "display_title": "Default",
+            "display_plugin": "default",
+            "display_options": {
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                },
+                "access": {
+                    "type": "perm",
+                    "perm": "administer entity forum"
+                },
+                "cache": {
+                    "type": "none"
+                },
+                "exposed_form": {
+                    "type": "basic",
+                    "options": []
+                },
+                "pager": {
+                    "type": "none",
+                    "options": {
+                        "offset": 0
+                    }
+                },
+                "style_plugin": "entity_forum_forum_hierarchy",
+                "style_options": {
+                    "columns": {
+                        "title": "title",
+                        "visibility": "visibility",
+                        "topic_count": "topic_count",
+                        "status": "status",
+                        "listed": "listed",
+                        "dropbutton": "dropbutton"
+                    },
+                    "default": -1,
+                    "info": {
+                        "title": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        },
+                        "visibility": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        },
+                        "topic_count": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        },
+                        "status": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        },
+                        "listed": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        },
+                        "dropbutton": {
+                            "sortable": 0,
+                            "default_sort_order": "asc",
+                            "align": "",
+                            "separator": "",
+                            "empty_column": 0,
+                            "responsive": ""
+                        }
+                    },
+                    "override": 1,
+                    "sticky": 0,
+                    "order": "asc",
+                    "caption": "",
+                    "summary": "",
+                    "empty_table": 0,
+                    "responsive": "",
+                    "indent_field": "title",
+                    "indent_width": 24
+                },
+                "row_plugin": "fields",
+                "row_options": {
+                    "default_field_elements": 1,
+                    "inline": [],
+                    "separator": "",
+                    "hide_empty": 0
+                },
+                "fields": {
+                    "forum_id": {
+                        "id": "forum_id",
+                        "table": "entity_forum_forum",
+                        "field": "forum_id",
+                        "label": "",
+                        "exclude": 1,
+                        "alter": {
+                            "alter_text": 0,
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "separator": "",
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0,
+                        "hide_alter_empty": 1
+                    },
+                    "title": {
+                        "id": "title",
+                        "table": "entity_forum_forum",
+                        "field": "title",
+                        "label": "Title",
+                        "alter": {
+                            "alter_text": 0,
+                            "make_link": 1,
+                            "path": "forum/[forum_id]",
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0,
+                        "hide_alter_empty": 1
+                    },
+                    "visibility": {
+                        "id": "visibility",
+                        "table": "entity_forum_forum",
+                        "field": "visibility",
+                        "label": "Visibility",
+                        "alter": {
+                            "alter_text": 0,
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "element_class": "forum-[visibility]",
+                        "element_default_classes": 0,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0,
+                        "hide_alter_empty": 1
+                    },
+                    "topic_count": {
+                        "id": "topic_count",
+                        "table": "entity_forum_forum",
+                        "field": "topic_count",
+                        "label": "Topics",
+                        "alter": {
+                            "alter_text": 0,
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "element_class": "forum-id",
+                        "element_default_classes": 0,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0,
+                        "hide_alter_empty": 1
+                    },
+                    "status": {
+                        "id": "status",
+                        "table": "entity_forum_forum",
+                        "field": "status",
+                        "label": "Status",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "<span class=\"forum-published\">Published</span>",
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "empty": "<span class=\"forum-unpublished\">Unpublished</span>",
+                        "empty_zero": 1,
+                        "hide_alter_empty": 1,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "hide_empty": 0
+                    },
+                    "listed": {
+                        "id": "listed",
+                        "table": "entity_forum_forum",
+                        "field": "listed",
+                        "label": "Listed",
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "<span class=\"forum-published\">Listed</span>",
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "empty": "<span class=\"forum-unpublished\">Unlisted</span>",
+                        "empty_zero": 1,
+                        "hide_alter_empty": 1,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "hide_empty": 0
+                    },
+                    "nothing": {
+                        "id": "nothing",
+                        "table": "views",
+                        "field": "nothing",
+                        "label": "",
+                        "exclude": 1,
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "Edit",
+                            "make_link": 1,
+                            "path": "admin/content/entity-forum/forum/[forum_id]/edit",
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "hide_alter_empty": 0,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0
+                    },
+                    "nothing_1": {
+                        "id": "nothing_1",
+                        "table": "views",
+                        "field": "nothing",
+                        "label": "",
+                        "exclude": 1,
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "Delete",
+                            "make_link": 1,
+                            "path": "admin/content/entity-forum/forum/[forum_id]/delete",
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "hide_alter_empty": 0,
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0
+                    },
+                    "dropbutton": {
+                        "id": "dropbutton",
+                        "table": "views",
+                        "field": "dropbutton",
+                        "label": "Operations",
+                        "alter": {
+                            "alter_text": 0,
+                            "make_link": 0,
+                            "trim": 0,
+                            "html": 0
+                        },
+                        "hide_alter_empty": 1,
+                        "fields": {
+                            "nothing": "nothing",
+                            "nothing_1": "nothing_1"
+                        },
+                        "relationship": "none",
+                        "group_type": "group",
+                        "ui_name": "",
+                        "exclude": 0,
+                        "element_type": "",
+                        "element_class": "",
+                        "element_label_type": "",
+                        "element_label_class": "",
+                        "element_label_colon": 1,
+                        "element_wrapper_type": "",
+                        "element_wrapper_class": "",
+                        "element_default_classes": 1,
+                        "empty": "",
+                        "hide_empty": 0,
+                        "empty_zero": 0
+                    }
+                },
+                "sorts": {
+                    "weight": {
+                        "id": "weight",
+                        "table": "entity_forum_forum",
+                        "field": "weight",
+                        "relationship": "none",
+                        "order": "ASC"
+                    },
+                    "title": {
+                        "id": "title",
+                        "table": "entity_forum_forum",
+                        "field": "title",
+                        "relationship": "none",
+                        "order": "ASC"
+                    }
+                },
+                "title": "Forums",
+                "empty": {
+                    "area": {
+                        "id": "area",
+                        "table": "views",
+                        "field": "area",
+                        "empty": 1,
+                        "content": "No forums yet.",
+                        "format": "plain_text"
+                    }
+                }
+            }
+        },
+        "page": {
+            "display_title": "Page",
+            "display_plugin": "page",
+            "display_options": {
+                "path": "admin/content/entity-forum/forums",
+                "menu": {
+                    "type": "default tab",
+                    "title": "Forums",
+                    "description": "",
+                    "name": "management",
+                    "weight": "-10",
+                    "context": 0,
+                    "context_only_inline": 0
+                },
+                "tab_options": {
+                    "type": "tab",
+                    "title": "Forums",
+                    "description": "",
+                    "weight": 0,
+                    "name": "management"
+                },
+                "display_comment": "Default Forums tab at admin/content/entity-forum. menu type \"default tab\" registers /forums as the default local task and creates the parent admin/content/entity-forum item (a tab on admin/content). Uses the entity_forum_forum_hierarchy style so children indent under their parent."
+            }
+        }
+    }
+}

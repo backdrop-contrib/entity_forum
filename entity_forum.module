@@ -378,6 +378,39 @@ function entity_forum_autoload_info() {
     'entity_forum_handler_field_forum_count' => 'views/entity_forum_handler_field_forum_count.inc',
     'entity_forum_handler_field_value_label' => 'views/entity_forum_handler_field_value_label.inc',
     'entity_forum_handler_area_post_link' => 'views/entity_forum_handler_area_post_link.inc',
+    'entity_forum_plugin_style_forum_hierarchy' => 'views/entity_forum_plugin_style_forum_hierarchy.inc',
+  );
+}
+
+/**
+ * Implements hook_views_plugins().
+ *
+ * Registers the "Forum hierarchy" style — a Table style that re-orders its
+ * rows depth-first and indents one column by nesting depth, so the forums
+ * index and admin forum overview can be built as Views without losing the
+ * parent/child tree (Views ships no tree style of its own). The class is
+ * autoloaded via hook_autoload_info(); it reuses core's views_view_table
+ * theme, so no template is registered here.
+ *
+ * @return array
+ *   Plugin definitions keyed by type.
+ */
+function entity_forum_views_plugins() {
+  return array(
+    'style' => array(
+      'entity_forum_forum_hierarchy' => array(
+        'title' => t('Forum hierarchy'),
+        'help' => t('Displays rows as an indented tree, each forum beneath its parent. For the forums list on the entity_forum_forum base table.'),
+        'handler' => 'entity_forum_plugin_style_forum_hierarchy',
+        'theme' => 'views_view_table',
+        'uses row plugin' => FALSE,
+        'uses row class' => TRUE,
+        'uses fields' => TRUE,
+        'uses grouping' => FALSE,
+        'uses options' => TRUE,
+        'type' => 'normal',
+      ),
+    ),
   );
 }
 
@@ -1305,27 +1338,18 @@ function entity_forum_menu() {
     'file' => 'entity_forum.pages.inc',
   );
 
-  // Admin UI: a "Forums" tab on admin/content.
-  $items['admin/content/entity-forum'] = array(
-    'title' => 'Forums',
-    'page callback' => 'entity_forum_admin_forums',
-    'access arguments' => array('administer entity forum'),
-    'type' => MENU_LOCAL_TASK,
-    'file' => 'entity_forum.admin.inc',
-  );
-  $items['admin/content/entity-forum/forums'] = array(
-    'title' => 'Forums',
-    'type' => MENU_DEFAULT_LOCAL_TASK,
-    'weight' => -10,
-  );
-  // The Topics tab (admin/content/entity-forum/topics) and the Replies tab
-  // (admin/content/entity-forum/replies) are each provided by a view's page
-  // display (a local task), so site builders can adjust their columns,
-  // filters, path and title through the Views UI. See
-  // config/views.view.entity_forum_topics_admin.json and
-  // config/views.view.forum_replies_admin.json. Only the Forums overview
-  // (admin/content/entity-forum, below) stays a code callback: it is a
-  // depth-first hierarchy Views has no style plugin for.
+  // Admin UI: the "Forums" tab on admin/content and its sub-tabs are ALL
+  // provided by shipped views' page displays, so site builders adjust their
+  // columns, filters, path and title in the Views UI rather than in code:
+  // - Forums overview (the default tab): entity_forum_forums_admin, a "default
+  //   tab" page display at admin/content/entity-forum/forums that also creates
+  //   the parent admin/content/entity-forum item (a tab on admin/content). It
+  //   uses the entity_forum_forum_hierarchy style so forums indent under their
+  //   parent — the tree the old code callback hand-rolled, now a Views style.
+  // - Topics: entity_forum_topics_admin at .../topics.
+  // - Replies: forum_replies_admin at .../replies.
+  // See config/views.view.*.json. Do NOT redeclare admin/content/entity-forum
+  // or .../forums here — the view owns them, and a hook_menu item would collide.
   $items['admin/content/entity-forum/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
@@ -3629,17 +3653,20 @@ function entity_forum_posting_name_save($account, $posting_name) {
 /**
  * Implements hook_views_pre_render().
  *
- * For the admin overview views (which provide the Topics and Replies tabs via
- * their own page displays): attaches the admin stylesheet — so it follows the
- * view wherever it is shown, including a site builder's clone. The stylesheet
- * carries the forum-published/forum-unpublished status spans both views use.
+ * For the admin overview views (which provide the Forums, Topics and Replies
+ * tabs via their own page displays): attaches the admin stylesheet — so it
+ * follows the view wherever it is shown, including a site builder's clone. The
+ * stylesheet carries the forum-published/forum-unpublished status spans all
+ * three use, plus the forum-public/forum-private visibility colouring +
+ * capitalisation the Forums overview relies on.
  *
  * The body is a field now (entity_forum_body), so its excerpt is trimmed and
  * HTML-stripped by the field handler's own settings rather than here — the old
  * post-render strip of the base-table content column is gone with the column.
  */
 function entity_forum_views_pre_render(&$view) {
-  if ($view->name == 'forum_replies_admin' || $view->name == 'entity_forum_topics_admin') {
+  $admin_views = array('entity_forum_forums_admin', 'entity_forum_topics_admin', 'forum_replies_admin');
+  if (in_array($view->name, $admin_views, TRUE)) {
     backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
   }
 }
