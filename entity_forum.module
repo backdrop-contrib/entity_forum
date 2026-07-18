@@ -1599,6 +1599,32 @@ function entity_forum_menu() {
 }
 
 /**
+ * Implements hook_menu_alter().
+ *
+ * Disambiguates the reply Field UI tabs. Topics and replies share one set of
+ * bundles (the site's topic types) but keep SEPARATE field collections — a
+ * classified topic carries price / schedule / contact fields, while replies to
+ * it deliberately do not. Field UI titles BOTH bundles' overview tabs "Manage
+ * fields" / "Manage displays", so on a topic type's page the reply tabs
+ * (secondary, under the Replies tab) read identically to the topic tabs
+ * (primary) and look like the very same control — which reads as "I can't give
+ * replies their own fields" even though the two collections are entirely
+ * separate. Renaming the reply tabs makes the two collections unmistakable.
+ *
+ * @param array $items
+ *   The menu router items, including Field UI's, to alter in place.
+ */
+function entity_forum_menu_alter(&$items) {
+  $base = 'admin/structure/entity-forum/topic-types/%entity_forum_topic_type/replies';
+  if (isset($items[$base . '/fields'])) {
+    $items[$base . '/fields']['title'] = 'Manage reply fields';
+  }
+  if (isset($items[$base . '/display'])) {
+    $items[$base . '/display']['title'] = 'Manage reply display';
+  }
+}
+
+/**
  * Menu wildcard loader for %entity_forum_forum.
  *
  * @param int $forum_id

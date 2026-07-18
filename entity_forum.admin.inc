@@ -1211,8 +1211,8 @@ function entity_forum_structure_page() {
   }
 
   // Topics and replies are bundleable: their fields belong to a topic type,
-  // not to topics/replies as a whole, so both rows lead to the type list
-  // rather than straight to Field UI.
+  // not to topics/replies as a whole, so the Topic row leads to the type list
+  // rather than straight to Field UI (the Reply row is handled below).
   $topic_types = entity_forum_topic_types();
   $manage = l(format_plural(count($topic_types), 'Manage 1 topic type', 'Manage @count topic types'), 'admin/structure/entity-forum/topic-types');
   $rows[] = array(
@@ -1220,10 +1220,25 @@ function entity_forum_structure_page() {
     t('Discussion threads within a forum. Topics have types — add a type to give a kind of topic its own fields.'),
     $manage,
   );
+  // A reply's type is its topic's type, so reply fields live on each topic
+  // type's Replies tab, not on a reply-types page of their own. With a single
+  // type, the Reply row points straight at its Replies tab; with several, the
+  // type list is the only sensible landing (pick a type, then its Replies tab
+  // — each type row carries a Replies operation for that), so the two rows no
+  // longer collapse onto the identical URL.
+  if (count($topic_types) === 1) {
+    $reply_path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', key($topic_types)) . '/replies';
+    $reply_link = l(t('Reply'), $reply_path);
+    $reply_manage = l(t('Manage reply fields'), $reply_path);
+  }
+  else {
+    $reply_link = l(t('Reply'), 'admin/structure/entity-forum/topic-types');
+    $reply_manage = l(t('Manage reply fields'), 'admin/structure/entity-forum/topic-types');
+  }
   $rows[] = array(
-    l(t('Reply'), 'admin/structure/entity-forum/topic-types'),
+    $reply_link,
     t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — see each type\'s <em>Replies</em> tab. For example, an attendee count on replies to an event.'),
-    $manage,
+    $reply_manage,
   );
   if (!$field_ui) {
     $build['notice'] = array(
@@ -1288,6 +1303,9 @@ function entity_forum_topic_types_page() {
       $operations[] = l(t('Manage fields'), $path . '/fields');
       $operations[] = l(t('Manage display'), $path . '/display');
     }
+    // Reply fields for this type live on its Replies tab; expose it here so
+    // reply fields are reachable in one click even with several topic types.
+    $operations[] = l(t('Replies'), $path . '/replies');
     if ($machine_name !== ENTITY_FORUM_TOPIC_TYPE_DEFAULT) {
       $operations[] = l(t('Delete'), $path . '/delete');
     }
@@ -1505,7 +1523,7 @@ function entity_forum_topic_type_replies_page($topic_type) {
   $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $topic_type->type) . '/replies';
   $build = array();
   $build['intro'] = array(
-    '#markup' => '<p>' . t('Fields here appear on replies posted in %type topics — an attendee count on replies to an event, say, which would make no sense on an ordinary reply. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
+    '#markup' => '<p>' . t('Replies in %type topics have their <strong>own field collection, separate from the topic\'s fields</strong> — the topic\'s <em>Manage fields</em> tab and the <em>Manage reply fields</em> tab below are two independent sets. For example, a %type topic may carry price and contact fields while its replies carry none, or an offer amount that the topic does not. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
       '%type' => $topic_type->label,
     )) . '</p>',
   );
@@ -1513,8 +1531,8 @@ function entity_forum_topic_type_replies_page($topic_type) {
     $build['links'] = array(
       '#theme' => 'item_list',
       '#items' => array(
-        l(t('Manage fields'), $path . '/fields'),
-        l(t('Manage display'), $path . '/display'),
+        l(t('Manage reply fields'), $path . '/fields'),
+        l(t('Manage reply display'), $path . '/display'),
       ),
     );
   }
