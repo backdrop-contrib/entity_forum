@@ -133,67 +133,6 @@ function _entity_forum_admin_forum_row($forum, $depth, array $forums_by_id) {
 }
 
 /**
- * Page callback: admin overview of topics.
- *
- * @return string
- *   Rendered table of topics with pager.
- */
-function entity_forum_admin_topics() {
-  $header = array(
-    array('data' => t('Title'), 'field' => 'title'),
-    array('data' => t('Type'), 'field' => 'type'),
-    t('Forum'),
-    array('data' => t('Author')),
-    array('data' => t('Replies'), 'field' => 'reply_count'),
-    array('data' => t('Last active'), 'field' => 'last_active_time', 'sort' => 'desc'),
-    array('data' => t('Listing'), 'field' => 'listing'),
-    array('data' => t('Status'), 'field' => 'status'),
-    t('Operations'),
-  );
-
-  $query = db_select('entity_forum_topic', 't')
-    ->extend('PagerDefault')
-    ->extend('TableSort')
-    ->fields('t', array('topic_id', 'title', 'type', 'forum_id', 'author_uid', 'author_name', 'reply_count', 'last_active_time', 'listing', 'status', 'pending'))
-    ->orderByHeader($header)
-    ->limit(50);
-  $result = $query->execute();
-
-  $forums_by_id = db_query('SELECT forum_id, title FROM {entity_forum_forum}')->fetchAllKeyed();
-  $topic_types = entity_forum_topic_types();
-
-  // Short labels for the Listing column; 'normal' shows as a quiet dash.
-  $listing_labels = array(
-    ENTITY_FORUM_LISTING_NORMAL => t('Listed'),
-    ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Moderators only'),
-    ENTITY_FORUM_LISTING_UNLISTED => t('Unlisted'),
-  );
-
-  $rows = array();
-  foreach ($result as $topic) {
-    $rows[] = array(
-      l($topic->title, 'topic/' . $topic->topic_id),
-      isset($topic_types[$topic->type]) ? check_plain($topic_types[$topic->type]->label) : check_plain($topic->type),
-      isset($forums_by_id[$topic->forum_id]) ? check_plain($forums_by_id[$topic->forum_id]) : t('N/A'),
-      entity_forum_format_author($topic->author_uid, $topic->author_name),
-      $topic->reply_count,
-      format_date($topic->last_active_time, 'short'),
-      isset($listing_labels[$topic->listing]) ? $listing_labels[$topic->listing] : check_plain($topic->listing),
-      $topic->pending ? t('Awaiting review') : ($topic->status ? t('Published') : t('Unpublished')),
-      _entity_forum_admin_operations('topic', $topic->topic_id),
-    );
-  }
-
-  $output = theme('table', array(
-    'header' => $header,
-    'rows' => $rows,
-    'empty' => t('No topics available.'),
-  ));
-  $output .= theme('pager');
-  return $output;
-}
-
-/**
  * Builds the edit/delete operations cell for admin overview tables.
  *
  * @param string $type

@@ -376,6 +376,7 @@ function entity_forum_autoload_info() {
     'EntityForumReply' => 'includes/entity_forum.entity.inc',
     'entity_forum_handler_field_avatar' => 'views/entity_forum_handler_field_avatar.inc',
     'entity_forum_handler_field_forum_count' => 'views/entity_forum_handler_field_forum_count.inc',
+    'entity_forum_handler_field_value_label' => 'views/entity_forum_handler_field_value_label.inc',
     'entity_forum_handler_area_post_link' => 'views/entity_forum_handler_area_post_link.inc',
   );
 }
@@ -420,19 +421,43 @@ function entity_forum_views_data_alter(&$data) {
   // that a site builder has to type machine names into. Swap it for a
   // checkbox list of the site's types — this is the filter a sitedev reaches
   // for when copying the shipped topics view to list one kind of topic.
+  // The stored value is a bundle machine name; render it as the type label
+  // (entity_forum_handler_field_value_label) so a column reads "Support
+  // question", not "entity_forum_topic" — the labels callback resolves at
+  // render time so newly added types need no view change.
   if (isset($data['entity_forum_topic']['type'])) {
     $data['entity_forum_topic']['type']['title'] = t('Topic type');
     $data['entity_forum_topic']['type']['help'] = t('The topic type (bundle), e.g. a support question or an event.');
+    $data['entity_forum_topic']['type']['field']['handler'] = 'entity_forum_handler_field_value_label';
+    $data['entity_forum_topic']['type']['field']['labels callback'] = 'entity_forum_topic_type_labels';
     $data['entity_forum_topic']['type']['filter']['handler'] = 'views_handler_filter_in_operator';
     $data['entity_forum_topic']['type']['filter']['options callback'] = 'entity_forum_topic_type_labels';
   }
-  // Replies share the topic types as their bundles, so the same filter
-  // works — "replies in Classified topics" without a relationship.
+  // Replies share the topic types as their bundles, so the same filter and
+  // label rendering work — "replies in Classified topics" without a
+  // relationship.
   if (isset($data['entity_forum_reply']['type'])) {
     $data['entity_forum_reply']['type']['title'] = t('Reply type');
     $data['entity_forum_reply']['type']['help'] = t("The reply type (bundle), taken from the reply's topic.");
+    $data['entity_forum_reply']['type']['field']['handler'] = 'entity_forum_handler_field_value_label';
+    $data['entity_forum_reply']['type']['field']['labels callback'] = 'entity_forum_topic_type_labels';
     $data['entity_forum_reply']['type']['filter']['handler'] = 'views_handler_filter_in_operator';
     $data['entity_forum_reply']['type']['filter']['options callback'] = 'entity_forum_topic_type_labels';
+  }
+
+  // Topic list visibility: stored as 'normal' / 'admin_only' / 'unlisted'.
+  // Render the human label (same value_label handler) so the admin topics
+  // view — and any view a site builder copies from it — shows "Moderators
+  // only" rather than the raw state.
+  if (isset($data['entity_forum_topic']['listing'])) {
+    $data['entity_forum_topic']['listing']['title'] = t('Topic list visibility');
+    $data['entity_forum_topic']['listing']['help'] = t('Whether the topic appears in topic lists: normally listed, moderators only, or unlisted (used by node-attached discussions).');
+    $data['entity_forum_topic']['listing']['field']['handler'] = 'entity_forum_handler_field_value_label';
+    $data['entity_forum_topic']['listing']['field']['value labels'] = array(
+      ENTITY_FORUM_LISTING_NORMAL => t('Listed'),
+      ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Moderators only'),
+      ENTITY_FORUM_LISTING_UNLISTED => t('Unlisted'),
+    );
   }
 
   // Aggregate count fields on the forum base table, so a forums-list View
@@ -1293,17 +1318,14 @@ function entity_forum_menu() {
     'type' => MENU_DEFAULT_LOCAL_TASK,
     'weight' => -10,
   );
-  $items['admin/content/entity-forum/topics'] = array(
-    'title' => 'Topics',
-    'page callback' => 'entity_forum_admin_topics',
-    'access arguments' => array('administer entity forum topic'),
-    'type' => MENU_LOCAL_TASK,
-    'file' => 'entity_forum.admin.inc',
-  );
-  // The Replies tab (admin/content/entity-forum/replies) is provided by
-  // the forum_replies_admin view's page display (a local task), so site
-  // builders can adjust its columns, filters, path and title through the
-  // Views UI. See config/views.view.forum_replies_admin.json.
+  // The Topics tab (admin/content/entity-forum/topics) and the Replies tab
+  // (admin/content/entity-forum/replies) are each provided by a view's page
+  // display (a local task), so site builders can adjust their columns,
+  // filters, path and title through the Views UI. See
+  // config/views.view.entity_forum_topics_admin.json and
+  // config/views.view.forum_replies_admin.json. Only the Forums overview
+  // (admin/content/entity-forum, below) stays a code callback: it is a
+  // depth-first hierarchy Views has no style plugin for.
   $items['admin/content/entity-forum/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
@@ -3541,16 +3563,17 @@ function entity_forum_posting_name_save($account, $posting_name) {
 /**
  * Implements hook_views_pre_render().
  *
- * For the admin replies view (which provides the Replies tab via its own page
- * display): attaches the admin stylesheet — so it follows the view wherever it
- * is shown, including a site builder's clone.
+ * For the admin overview views (which provide the Topics and Replies tabs via
+ * their own page displays): attaches the admin stylesheet — so it follows the
+ * view wherever it is shown, including a site builder's clone. The stylesheet
+ * carries the forum-published/forum-unpublished status spans both views use.
  *
  * The body is a field now (entity_forum_body), so its excerpt is trimmed and
  * HTML-stripped by the field handler's own settings rather than here — the old
  * post-render strip of the base-table content column is gone with the column.
  */
 function entity_forum_views_pre_render(&$view) {
-  if ($view->name == 'forum_replies_admin') {
+  if ($view->name == 'forum_replies_admin' || $view->name == 'entity_forum_topics_admin') {
     backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
   }
 }
