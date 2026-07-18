@@ -2649,6 +2649,90 @@ function entity_forum_user_avatar_fid($account) {
 }
 
 /**
+ * Implements hook_theme().
+ *
+ * Registers the themeable post wrapper. A forum post (a topic's opening post or
+ * a reply) is rendered through the 'entity_forum_post' template so a site theme
+ * can restyle the whole post shell — avatar, byline, content slot, attached
+ * fields, signature and links — by copying entity-forum-post.tpl.php into its
+ * own directory. The module's hand-built markup moved here to make that possible
+ * (the fields inside a post are already themeable via Manage Display; this opens
+ * up the surrounding shell too). Threading, paging and the per-viewer moderation
+ * decisions stay in code — the template receives only already-rendered pieces.
+ */
+function entity_forum_theme() {
+  return array(
+    'entity_forum_post' => array(
+      'variables' => array(
+        'body_html' => '',
+        'uid' => 0,
+        'created' => 0,
+        'html_id' => '',
+        'links' => '',
+        'prefix' => '',
+        'author_name' => '',
+        'fields' => '',
+        'extra_classes' => array(),
+        'entity_type' => '',
+        'bundle' => '',
+      ),
+      'template' => 'templates/entity-forum-post',
+    ),
+  );
+}
+
+/**
+ * Prepares variables for the entity_forum_post template.
+ *
+ * Derives the presentational pieces (avatar, byline, signature, wrapper
+ * classes) from the raw author/state data so the template stays pure markup and
+ * a themer can override either the preprocess or the template. Lives in the
+ * .module, not the .inc, because the theme registry collects preprocess
+ * functions at build time, when the page includes are not loaded.
+ *
+ * Adds theme hook suggestions and matching CSS classes so a theme can style
+ * posts by kind (topic vs reply) and by topic type with no PHP:
+ * - entity-forum-post--topic.tpl.php / --reply.tpl.php
+ * - entity-forum-post--topic--BUNDLE.tpl.php / --reply--BUNDLE.tpl.php
+ * (BUNDLE is the topic-type machine name; the default type is
+ * entity_forum_topic). Suggestions are listed least- to most-specific because
+ * theme() applies theme_hook_suggestions in FILO order. The same axes are also
+ * exposed as classes (.entity-forum-post-topic / -reply and
+ * .entity-forum-post-type-BUNDLE) so the both-kinds-of-a-type case is a CSS
+ * selector, not another template.
+ *
+ * @param array $variables
+ *   Theme variables, by reference. See entity-forum-post.tpl.php for the list.
+ */
+function template_preprocess_entity_forum_post(&$variables) {
+  $variables['avatar'] = entity_forum_format_avatar($variables['uid']);
+  $variables['byline'] = entity_forum_format_byline($variables['uid'], $variables['created'], $variables['author_name']);
+  $variables['signature'] = entity_forum_format_signature($variables['uid']);
+
+  // 'topic' or 'reply', exposed to the template and used for suggestions/classes.
+  $variables['kind'] = $variables['entity_type'] === 'entity_forum_reply' ? 'reply' : 'topic';
+  $bundle = (string) $variables['bundle'];
+
+  // Theme hook suggestions, least- to most-specific (theme() reverses to FILO).
+  $suggestions = array('entity_forum_post__' . $variables['kind']);
+  if ($bundle !== '') {
+    $suggestions[] = 'entity_forum_post__' . $variables['kind'] . '__' . $bundle;
+  }
+  $variables['theme_hook_suggestions'] = $suggestions;
+
+  // 'entity-forum-post' + kind + topic-type classes, then any state classes
+  // (e.g. the moderator-only reported-content highlight). Machine names are
+  // hyphenated for CSS.
+  $classes = array('entity-forum-post', 'entity-forum-post-' . $variables['kind']);
+  if ($bundle !== '') {
+    $classes[] = 'entity-forum-post-type-' . strtr($bundle, '_', '-');
+  }
+  $classes = array_merge($classes, $variables['extra_classes']);
+  $variables['classes'] = implode(' ', array_map('check_plain', $classes));
+  $variables['html_id'] = check_plain($variables['html_id']);
+}
+
+/**
  * Renders a post author's forum picture.
  *
  * Falls back to the default picture (see

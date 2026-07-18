@@ -291,7 +291,9 @@ function entity_forum_topic_page($topic) {
       $highlight['prefix'],
       $topic->author_name,
       isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
-      $highlight['classes']
+      $highlight['classes'],
+      'entity_forum_topic',
+      $topic->bundle()
     ),
   );
 
@@ -387,7 +389,9 @@ function _entity_forum_topic_replies_build($topic) {
         $highlight['prefix'] . $prefix,
         $reply->author_name,
         isset($reply_fields[$reply_id]) ? $reply_fields[$reply_id] : '',
-        $highlight['classes']
+        $highlight['classes'],
+        'entity_forum_reply',
+        $reply->bundle()
       );
       $items .= $is_child ? '<div class="entity-forum-reply-child">' . $post . '</div>' : $post;
     }
@@ -485,7 +489,9 @@ function entity_forum_node_discussion_build($topic) {
         $highlight['prefix'],
         $topic->author_name,
         isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
-        $highlight['classes']
+        $highlight['classes'],
+        'entity_forum_topic',
+        $topic->bundle()
       ),
     );
   }
@@ -1032,27 +1038,26 @@ function _entity_forum_post_body_html($entity_type, $entity) {
  * @return string
  *   Sanitized post HTML.
  */
-function _entity_forum_render_post($body_html, $uid, $created, $html_id, $links = '', $prefix = '', $author_name = '', $fields = '', array $extra_classes = array()) {
-  $classes = array_merge(array('entity-forum-post'), $extra_classes);
-  $output = '<div class="' . check_plain(implode(' ', $classes)) . '" id="' . check_plain($html_id) . '">';
-  $output .= $prefix;
-  $avatar = entity_forum_format_avatar($uid);
-  if ($avatar) {
-    $output .= '<div class="entity-forum-avatar">' . $avatar . '</div>';
-  }
-  $output .= '<div class="entity-forum-byline">' . entity_forum_format_byline($uid, $created, $author_name) . '</div>';
-  if ($body_html !== '') {
-    $output .= '<div class="entity-forum-content">' . $body_html . '</div>';
-  }
-  // Attachments arrive as ordinary fields, so they render here with every
-  // other field — the module no longer has an attachment section of its own.
-  $output .= $fields;
-  $output .= entity_forum_format_signature($uid);
-  if ($links) {
-    $output .= '<div class="entity-forum-post-links">' . $links . '</div>';
-  }
-  $output .= '</div>';
-  return $output;
+function _entity_forum_render_post($body_html, $uid, $created, $html_id, $links = '', $prefix = '', $author_name = '', $fields = '', array $extra_classes = array(), $entity_type = 'entity_forum_topic', $bundle = '') {
+  // The markup lives in the themeable 'entity_forum_post' template so a site
+  // theme can restyle the whole post shell; the avatar/byline/signature, the
+  // wrapper classes and the per-kind/per-topic-type theme hook suggestions are
+  // derived in template_preprocess_entity_forum_post(). Attachments arrive as
+  // ordinary fields, so they render inside the template with every other field —
+  // the module has no attachment section of its own.
+  return theme('entity_forum_post', array(
+    'body_html' => $body_html,
+    'uid' => $uid,
+    'created' => $created,
+    'html_id' => $html_id,
+    'links' => $links,
+    'prefix' => $prefix,
+    'author_name' => $author_name,
+    'fields' => $fields,
+    'extra_classes' => $extra_classes,
+    'entity_type' => $entity_type,
+    'bundle' => $bundle,
+  ));
 }
 
 /**
