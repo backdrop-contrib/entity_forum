@@ -9,23 +9,13 @@
  * - entity_forum_reply_frontend_form (the reply form on topic pages)
  * - entity_forum_posting_name_form (the account Forum tab)
  *
- * The topic list on forum pages is a view display, chosen per forum on the
- * forum form and defaulting to the shipped entity_forum_topics view — change
- * it in the Views UI (admin/structure/views) or with the Views hooks.
+ * The forums index ("forums") and the topic list on forum pages are both view
+ * displays — the index is the shipped entity_forum_forums view (Forum hierarchy
+ * style), and the per-forum topic list is chosen on the forum form, defaulting
+ * to entity_forum_topics. Alter either in the Views UI (admin/structure/views)
+ * or with the Views hooks; the old hook_entity_forum_forums_page_alter() is gone
+ * with the code callback it belonged to.
  */
-
-/**
- * Alter the forums index page ("forums").
- *
- * @param array $build
- *   The page render array: 'forums' (the index table).
- */
-function hook_entity_forum_forums_page_alter(&$build) {
-  $build['notice'] = array(
-    '#markup' => '<p>' . t('Welcome to our forums!') . '</p>',
-    '#weight' => -10,
-  );
-}
 
 /**
  * Alter a forum page ("forum/N") before it is rendered.

@@ -377,7 +377,9 @@ function entity_forum_autoload_info() {
     'entity_forum_handler_field_avatar' => 'views/entity_forum_handler_field_avatar.inc',
     'entity_forum_handler_field_forum_count' => 'views/entity_forum_handler_field_forum_count.inc',
     'entity_forum_handler_field_value_label' => 'views/entity_forum_handler_field_value_label.inc',
+    'entity_forum_handler_field_forum_link' => 'views/entity_forum_handler_field_forum_link.inc',
     'entity_forum_handler_area_post_link' => 'views/entity_forum_handler_area_post_link.inc',
+    'entity_forum_handler_area_moderation_panel' => 'views/entity_forum_handler_area_moderation_panel.inc',
     'entity_forum_plugin_style_forum_hierarchy' => 'views/entity_forum_plugin_style_forum_hierarchy.inc',
   );
 }
@@ -539,6 +541,34 @@ function entity_forum_views_data_alter(&$data) {
         'click sortable' => FALSE,
       ),
     );
+
+    // The forum "name" cell for a forums index: the linked title, a
+    // "(private)" marker, and the formatted description under it — one field,
+    // because the hierarchy style indents a single field's value as a unit and
+    // the three parts must indent together (see
+    // entity_forum_handler_field_forum_link). It is the identity column of a
+    // forum list; Topics / Last activity stay separate, editable columns.
+    $data['entity_forum_forum']['forum_link'] = array(
+      'title' => t('Forum name and description'),
+      'help' => t('The linked forum title with a "(private)" marker and its formatted description below — the forum-index cell. Use as the indented column of the Forum hierarchy style.'),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_link',
+        'real field' => 'forum_id',
+        'click sortable' => FALSE,
+      ),
+    );
+
+    // Header/footer/empty area: the moderator queue panel, shown only to
+    // moderators and only when items are waiting. Same per-viewer reason as
+    // the post-link area — a display's access gates the whole view, not one
+    // region. See entity_forum_handler_area_moderation_panel.
+    $data['entity_forum_forum']['moderation_panel'] = array(
+      'title' => t('Moderation panel'),
+      'help' => t('A summary of items awaiting moderation, linking to the moderation queue. Shown only to moderators with something waiting.'),
+      'area' => array(
+        'handler' => 'entity_forum_handler_area_moderation_panel',
+      ),
+    );
   }
 }
 
@@ -596,9 +626,9 @@ function entity_forum_views_query_alter(&$view, &$query) {
 
   $may_see_private = user_access('view private entity forum') || user_access('administer entity forum');
 
-  // A view listing the FORUMS themselves. Filtered on the forum's own
-  // visibility — matching entity_forum_forums_page(), which hides a private
-  // forum but not its public children.
+  // A view listing the FORUMS themselves (e.g. the shipped entity_forum_forums
+  // index). Filtered on the forum's own visibility — a private forum is hidden,
+  // but its public children are not.
   if ($base === 'entity_forum_forum') {
     if (!$may_see_private) {
       $query->add_where(0, 'entity_forum_forum.visibility', 'private', '<>');
@@ -1218,13 +1248,9 @@ function entity_forum_permission() {
 function entity_forum_menu() {
   $items = array();
 
-  // Frontend.
-  $items['forums'] = array(
-    'title' => 'Forums',
-    'page callback' => 'entity_forum_forums_page',
-    'access arguments' => array('access content'),
-    'file' => 'entity_forum.pages.inc',
-  );
+  // Frontend. The forums index (/forums) is a shipped view (entity_forum_forums)
+  // on the Forum hierarchy style, with the moderator panel as a header area
+  // handler — do NOT declare 'forums' here; the view's page display owns it.
   $items['forum/%entity_forum_forum'] = array(
     'title callback' => 'entity_label',
     'title arguments' => array('entity_forum_forum', 1),
@@ -3665,8 +3691,15 @@ function entity_forum_posting_name_save($account, $posting_name) {
  * post-render strip of the base-table content column is gone with the column.
  */
 function entity_forum_views_pre_render(&$view) {
+  $module_path = backdrop_get_path('module', 'entity_forum');
   $admin_views = array('entity_forum_forums_admin', 'entity_forum_topics_admin', 'forum_replies_admin');
   if (in_array($view->name, $admin_views, TRUE)) {
-    backdrop_add_css(backdrop_get_path('module', 'entity_forum') . '/css/entity_forum_admin.css');
+    backdrop_add_css($module_path . '/css/entity_forum_admin.css');
+  }
+  // The public forums index carries the frontend forum styles (the title /
+  // description / private-marker / moderation-panel classes) the code callback
+  // used to attach via _entity_forum_add_css().
+  if ($view->name === 'entity_forum_forums') {
+    backdrop_add_css($module_path . '/css/entity_forum.css');
   }
 }
