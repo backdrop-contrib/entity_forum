@@ -445,21 +445,21 @@ function entity_forum_schema() {
         'size' => 'tiny',
         'not null' => TRUE,
         'default' => 0,
-        'description' => 'Whether topic authors may close/reopen their own topics in this forum (classified ads: mark as sold).',
+        'description' => 'Whether topic authors may close/reopen their own topics in this forum (e.g. an author marking their own support question resolved).',
       ),
       'topic_type' => array(
         'type' => 'varchar',
         'length' => 32,
         'not null' => TRUE,
         'default' => 'entity_forum_topic',
-        'description' => 'The topic type every topic posted in this forum takes. Set on the forum, so posting never asks: a classifieds forum holds classified ads. Use a sub-forum for a different kind of topic.',
+        'description' => 'The topic type every topic posted in this forum takes. Set on the forum, so posting never asks: a support forum takes support topics. Use a sub-forum for a different kind of topic.',
       ),
       'topic_view' => array(
         'type' => 'varchar',
         'length' => 128,
         'not null' => TRUE,
         'default' => '',
-        'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default — so a site that never chooses one follows the module, and a classifieds forum can render as an ad grid while General stays a topic table. Read it through entity_forum_forum_topic_list_view(), which falls back to the default if the named view has since been deleted.',
+        'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default — so a site that never chooses one follows the module, and a photo-gallery forum can render as a thumbnail grid while the discussion forums stay a topic table. Read it through entity_forum_forum_topic_list_view(), which falls back to the default if the named view has since been deleted.',
       ),
       'listed' => array(
         'type' => 'int',
@@ -644,7 +644,7 @@ function entity_forum_schema() {
         'length' => 32,
         'not null' => TRUE,
         'default' => 'entity_forum_topic',
-        'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in a Classified topic is a Classified reply, so a site can give it its own fields (an offer amount, say). Never empty — entity_extract_ids() throws on a missing bundle.',
+        'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in an Events topic is an Events reply, so a site can give it its own fields (an attendee count on an RSVP, say). Never empty — entity_extract_ids() throws on a missing bundle.',
       ),
       // The reply body is the entity_forum_body field (one instance per topic
       // type, shared with topics), not a column. See entity_forum_add_body_field().

@@ -422,7 +422,7 @@ function entity_forum_views_data_alter(&$data) {
   // for when copying the shipped topics view to list one kind of topic.
   if (isset($data['entity_forum_topic']['type'])) {
     $data['entity_forum_topic']['type']['title'] = t('Topic type');
-    $data['entity_forum_topic']['type']['help'] = t('The topic type (bundle), e.g. a classified ad.');
+    $data['entity_forum_topic']['type']['help'] = t('The topic type (bundle), e.g. a support question or an event.');
     $data['entity_forum_topic']['type']['filter']['handler'] = 'views_handler_filter_in_operator';
     $data['entity_forum_topic']['type']['filter']['options callback'] = 'entity_forum_topic_type_labels';
   }

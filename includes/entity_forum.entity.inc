@@ -91,7 +91,7 @@ class EntityForumForum extends Entity {
 
   /**
    * Whether topic authors may close/reopen their own topics here
-   * (classified ads: mark as sold).
+   * (e.g. an author marking their own support question resolved).
    * @var int
    */
   public $author_close = 0;
@@ -108,9 +108,9 @@ class EntityForumForum extends Entity {
    * The view display rendering this forum's topic list, as "name:display_id".
    *
    * Empty means the shipped default, so a site that never chooses one simply
-   * follows the module. Set it to a copy of the topics view and a classifieds
-   * forum renders as an ad grid while General stays a topic table — the other
-   * half of "sitedevs copy and amend the shipped views".
+   * follows the module. Set it to a copy of the topics view and a photo-gallery
+   * forum renders as a thumbnail grid while the discussion forums stay a topic
+   * table — the other half of "sitedevs copy and amend the shipped views".
    *
    * Read it through entity_forum_forum_topic_list_view(), which falls back to
    * the default if the named view or display has since been deleted: no forum
@@ -124,8 +124,9 @@ class EntityForumForum extends Entity {
    * The topic type every topic posted in this forum takes.
    *
    * Set on the forum, so posting never asks which kind of topic this is — a
-   * classifieds forum holds classified ads. A forum wanting a different kind
-   * of topic gets a sub-forum.
+   * support forum carries topics with a product-version field, a discussion
+   * forum stays plain. A forum wanting a different kind of topic gets a
+   * sub-forum.
    *
    * EMPTY (ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE) means the forum takes no
    * topics at all: a container grouping sub-forums. Distinct from naming a
@@ -400,8 +401,8 @@ class EntityForumReply extends Entity {
   /**
    * The reply type (bundle): an entity_forum topic type machine name.
    *
-   * Derived from the reply's topic rather than chosen — a reply in a
-   * Classified topic is a Classified reply — and denormalized onto the row
+   * Derived from the reply's topic rather than chosen — a reply in an
+   * Events topic is an Events reply — and denormalized onto the row
    * exactly like $forum_id. hook_entity_presave() is authoritative: it sets
    * this from the topic on every save, so nothing else has to remember to.
    * Defaulted in the constructor for the same reason as EntityForumTopic::$type.

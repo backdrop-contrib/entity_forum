@@ -303,7 +303,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['author_close'] = array(
     '#type' => 'checkbox',
     '#title' => t('Authors may close and reopen their own topics'),
-    '#description' => t('Adds a Close/Reopen link to a topic for its author — so, for example, a seller can mark an ad sold. Applies to this forum only, not its sub-forums.'),
+    '#description' => t('Adds a Close/Reopen link to a topic for its author — so, for example, a member can mark their own support question resolved. Applies to this forum only, not its sub-forums.'),
     '#default_value' => !empty($forum->author_close),
   );
 
@@ -316,7 +316,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#title' => t('Topic type'),
     '#options' => $topic_type_options,
     '#default_value' => $current_type ? $current_type->type : ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE,
-    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a classifieds forum can have a price while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. Choose <em>None</em> for a forum that only groups sub-forums, like a "Classified Adverts" heading above For Sale and Wanted: nobody can post in it. Applies to this forum only, not its sub-forums.', array(
+    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a support forum can require a product-version field while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. Choose <em>None</em> for a forum that only groups sub-forums, like a "Support" heading above Installation and Usage: nobody can post in it. Applies to this forum only, not its sub-forums.', array(
       '@types' => url('admin/structure/entity-forum/topic-types'),
     )),
   );
@@ -330,7 +330,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#title' => t('Topic list view'),
     '#options' => array('' => t('- Default -')) + $view_options,
     '#default_value' => isset($view_options[$forum->topic_view]) ? $forum->topic_view : '',
-    '#description' => t('The view display that renders this forum\'s list of topics. Copy the shipped topics view at <a href="@views">the views page</a> and amend it to give a forum its own list — an ad grid for a classifieds forum, say, while the others keep the standard topic table. Only displays built on topics and taking a forum ID argument are offered, since the forum is passed to the display as that argument.', array(
+    '#description' => t('The view display that renders this forum\'s list of topics. Copy the shipped topics view at <a href="@views">the views page</a> and amend it to give a forum its own list — a thumbnail grid for a photo-gallery forum, say, while the others keep the standard topic table. Only displays built on topics and taking a forum ID argument are offered, since the forum is passed to the display as that argument.', array(
       '@views' => url('admin/structure/views'),
     )),
     // A container forum renders no topic list, so the choice is meaningless.
@@ -1432,7 +1432,7 @@ function entity_forum_structure_page() {
   );
   $rows[] = array(
     l(t('Reply'), 'admin/structure/entity-forum/topic-types'),
-    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — see each type\'s <em>Replies</em> tab. For example, an offer amount on replies to a classified ad.'),
+    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — see each type\'s <em>Replies</em> tab. For example, an attendee count on replies to an event.'),
     $manage,
   );
   if (!$field_ui) {
@@ -1543,7 +1543,7 @@ function entity_forum_topic_type_form($form, &$form_state, $topic_type = NULL) {
   $form['label'] = array(
     '#type' => 'textfield',
     '#title' => t('Name'),
-    '#description' => t('The human-readable name of this topic type, e.g. "Classified".'),
+    '#description' => t('The human-readable name of this topic type, e.g. "Support" or "Event".'),
     '#default_value' => $is_new ? '' : $topic_type->label,
     '#maxlength' => 255,
     '#required' => TRUE,
@@ -1715,7 +1715,7 @@ function entity_forum_topic_type_replies_page($topic_type) {
   $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $topic_type->type) . '/replies';
   $build = array();
   $build['intro'] = array(
-    '#markup' => '<p>' . t('Fields here appear on replies posted in %type topics — an offer amount on replies to a classified ad, say, which would make no sense on an ordinary reply. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
+    '#markup' => '<p>' . t('Fields here appear on replies posted in %type topics — an attendee count on replies to an event, say, which would make no sense on an ordinary reply. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
       '%type' => $topic_type->label,
     )) . '</p>',
   );
