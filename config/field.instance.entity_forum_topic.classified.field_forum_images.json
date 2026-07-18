@@ -1,0 +1,78 @@
+{
+    "_config_name": "field.instance.entity_forum_topic.classified.field_forum_images",
+    "field_name": "field_forum_images",
+    "entity_type": "entity_forum_topic",
+    "bundle": "classified",
+    "label": "Forum Images",
+    "widget": {
+        "weight": "6",
+        "type": "image_image",
+        "module": "image",
+        "active": 1,
+        "settings": {
+            "progress_indicator": "throbber",
+            "browser_view": "image_library",
+            "preview_image_style": "thumbnail",
+            "inline_fields_option": "0",
+            "inline_fields": []
+        }
+    },
+    "description": "",
+    "required": 0,
+    "deleted": 0,
+    "default_value": null,
+    "default_value_function": null,
+    "settings": {
+        "file_directory": "",
+        "file_extensions": "png gif jpg jpeg webp svg",
+        "max_filesize": "",
+        "max_dimensions": "800x800",
+        "min_dimensions": "",
+        "alt_field": 1,
+        "alt_field_required": 0,
+        "title_field": 1,
+        "orientate": 0,
+        "filefield_paths_enabled": 1,
+        "filefield_paths": {
+            "file_path": {
+                "value": "forum/images/topics",
+                "options": {
+                    "slashes": 0,
+                    "path": 0,
+                    "transliterate": 0
+                }
+            },
+            "redirect": 0,
+            "retroactive_update": 0,
+            "active_updating": 0,
+            "file_name": {
+                "value": "[file:ffp-name-only-original].[file:ffp-extension-original]",
+                "options": {
+                    "slashes": 0,
+                    "path": 0,
+                    "transliterate": 0
+                }
+            }
+        },
+        "default_image": "",
+        "user_register_form": false
+    },
+    "display": {
+        "default": {
+            "label": "hidden",
+            "type": "colorbox",
+            "weight": "0",
+            "settings": {
+                "colorbox_node_style": "entity_forum_avatar_small",
+                "colorbox_node_style_first": "entity_forum_avatar",
+                "colorbox_image_style": "",
+                "colorbox_gallery": "page",
+                "colorbox_gallery_custom": "",
+                "colorbox_caption": "auto",
+                "colorbox_caption_custom": "",
+                "colorbox_multivalue_index": null
+            },
+            "module": "colorbox"
+        }
+    }
+}

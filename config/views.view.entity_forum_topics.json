@@ -1,6 +1,7 @@
 {
     "_config_name": "views.view.entity_forum_topics",
     "name": "entity_forum_topics",
+    "module": "entity_forum",
     "description": "Topic list embedded on each forum page by the entity_forum module. Columns are site-builder editable here.",
     "tag": "entity_forum",
     "disabled": false,

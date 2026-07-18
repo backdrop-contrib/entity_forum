@@ -1,0 +1,41 @@
+{
+    "_config_name": "field.instance.entity_forum_topic.classified.field_forum_ads_schedule_date",
+    "field_name": "field_forum_ads_schedule_date",
+    "entity_type": "entity_forum_topic",
+    "bundle": "classified",
+    "label": "Dates",
+    "widget": {
+        "weight": "2",
+        "type": "date_html5",
+        "module": "date",
+        "active": 1,
+        "settings": {
+            "limits": {
+                "mode": "none",
+                "years_back": "-3",
+                "years_forward": "3"
+            },
+            "no_fieldset": 1
+        }
+    },
+    "description": "",
+    "required": 0,
+    "deleted": 0,
+    "default_value": null,
+    "default_value_function": null,
+    "settings": {
+        "default_value": "now",
+        "default_value_code": "",
+        "default_value2": "same",
+        "default_value_code2": "",
+        "user_register_form": false
+    },
+    "display": {
+        "default": {
+            "label": "hidden",
+            "type": "hidden",
+            "weight": "7",
+            "settings": []
+        }
+    }
+}

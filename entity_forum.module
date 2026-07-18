@@ -1333,6 +1333,14 @@ function entity_forum_menu() {
   // forum mapping. Keyed on the content type machine name (the node_types
   // config key). These are the "Add placement" workflow behind the table on
   // the settings page, replacing the old one-select-per-type list.
+  $items['admin/content/entity-forum/settings/remove-starter-forums'] = array(
+    'title' => 'Remove pre-installed forums',
+    'page callback' => 'backdrop_get_form',
+    'page arguments' => array('entity_forum_remove_starter_forums_form'),
+    'access arguments' => array('administer entity forum'),
+    'type' => MENU_CALLBACK,
+    'file' => 'entity_forum.admin.inc',
+  );
   $items['admin/content/entity-forum/settings/discussions/add'] = array(
     'title' => 'Add content discussion',
     'page callback' => 'backdrop_get_form',

@@ -126,11 +126,101 @@ function entity_forum_requirements($phase) {
  * install-time counterpart of node_add_body_field() on a fresh content type.
  * Every topic type created afterwards seeds its own body in
  * entity_forum_topic_type_form_submit().
+ *
+ * Also seeds the demo "classified" topic type's body, and the starter forums.
+ * The classified type, its ad fields and the grid view ship as config (imported
+ * before this hook runs); only the body field (code-seeded like the default
+ * type's, not shipped as config) and the forum ENTITIES are created here — a
+ * forum is a table row, not config. The starter forums let a fresh site show
+ * off a plain forum and a fielded classified section out of the box, and are
+ * removable afterwards from the settings page.
  */
 function entity_forum_install() {
   // The module is enabled (its entity types are registered with Field API)
   // before hook_install runs, so the body field can be attached now.
   entity_forum_topic_type_add_body(ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
+
+  // The classified demo type's config (type + ad fields + grid view) is
+  // already imported; seed its body the same way as the default type.
+  entity_forum_topic_type_add_body('classified');
+
+  entity_forum_install_starter_forums();
+}
+
+/**
+ * Creates the starter demo forums and records their IDs.
+ *
+ * Three forums that demonstrate the module out of the box: a plain "General
+ * Discussion" on the default type; a "Classified Ads" container (topic type
+ * "- None -", so it only groups sub-forums); and an "Items for Sale" child on
+ * the classified type, wired to the shipped ad grid view. Forums are entities,
+ * so they cannot ship as config and are created here at install.
+ *
+ * The IDs are stored in entity_forum.settings so the settings page can offer
+ * to remove exactly these forums later (a site that wants a clean slate), and
+ * only while they still exist.
+ */
+function entity_forum_install_starter_forums() {
+  $format = filter_default_format();
+
+  $general = _entity_forum_create_starter_forum(array(
+    'title' => 'General Discussion',
+    'description' => 'A place for general chat — the standard forum, out of the box.',
+    'weight' => 0,
+    'topic_type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
+  ), $format);
+
+  $classified = _entity_forum_create_starter_forum(array(
+    'title' => 'Classified Ads',
+    'description' => "Members' classified adverts.",
+    'weight' => 10,
+    // "- None -": a container that only groups sub-forums, nothing is posted
+    // directly in it.
+    'topic_type' => ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE,
+  ), $format);
+
+  $items = _entity_forum_create_starter_forum(array(
+    'title' => 'Items for Sale',
+    'description' => 'Items offered for sale by members.',
+    'parent_id' => $classified,
+    'weight' => 0,
+    // Sellers can mark their own ad sold.
+    'author_close' => TRUE,
+    'topic_type' => 'classified',
+    'topic_view' => 'forum_topics_classified:default',
+  ), $format);
+
+  config_set('entity_forum.settings', 'starter_forum_ids', array($general, $classified, $items));
+}
+
+/**
+ * Creates one starter forum entity from a small property array.
+ *
+ * @param array $props
+ *   Forum properties: title (required), description, parent_id, weight,
+ *   author_close, topic_type (required), topic_view.
+ * @param string $format
+ *   Text format machine name for the description.
+ *
+ * @return int
+ *   The new forum's ID.
+ */
+function _entity_forum_create_starter_forum(array $props, $format) {
+  $forum = entity_create('entity_forum_forum', array());
+  $forum->title = $props['title'];
+  $forum->description = isset($props['description']) ? $props['description'] : '';
+  $forum->description_format = $format;
+  $forum->parent_id = isset($props['parent_id']) ? (int) $props['parent_id'] : 0;
+  $forum->visibility = 'public';
+  $forum->weight = isset($props['weight']) ? (int) $props['weight'] : 0;
+  $forum->status = 1;
+  $forum->listed = 1;
+  $forum->author_close = !empty($props['author_close']) ? 1 : 0;
+  $forum->topic_type = $props['topic_type'];
+  $forum->topic_view = isset($props['topic_view']) ? $props['topic_view'] : '';
+  $forum->changed = REQUEST_TIME;
+  $forum->save();
+  return (int) $forum->id();
 }
 
 /**
@@ -197,6 +287,7 @@ function entity_forum_uninstall() {
     'image.style.entity_forum_avatar_small',
     'views.view.entity_forum_topics',
     'views.view.forum_replies_admin',
+    'views.view.forum_topics_classified',
   );
   foreach (config_get_names_with_prefix('entity_forum.type.') as $name) {
     $names[] = $name;

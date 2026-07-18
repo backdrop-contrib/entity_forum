@@ -868,12 +868,137 @@ function entity_forum_settings_form($form, &$form_state) {
     '#attributes' => array('class' => array('button', 'button-action')),
   );
 
+  // Starter forums: the demo forums seeded at install (General Discussion, a
+  // Classified Ads container and its Items for Sale child). Offered for removal
+  // only while at least one still exists — a site that wants a clean slate can
+  // clear them out without touching the classified type/fields/view, which
+  // stay as reusable building blocks.
+  $starter_ids = entity_forum_starter_forum_ids();
+  if ($starter_ids) {
+    $titles = array();
+    foreach ($starter_ids as $id) {
+      $forum = entity_load('entity_forum_forum', $id);
+      if ($forum) {
+        $titles[] = check_plain($forum->title);
+      }
+    }
+    $form['starter'] = array(
+      '#type' => 'fieldset',
+      '#title' => t('Starter forums'),
+      '#description' => t('The example forums installed with the module: !list. They demonstrate a plain forum and a fielded classified section. Remove them once you have your own forums set up — the classified topic type, its fields and the ad grid view are left in place for you to reuse.', array(
+        '!list' => theme('item_list', array('items' => $titles)),
+      )),
+    );
+    $form['starter']['remove'] = array(
+      '#type' => 'link',
+      '#title' => t('Remove pre-installed forums'),
+      '#href' => 'admin/content/entity-forum/settings/remove-starter-forums',
+      '#attributes' => array('class' => array('button')),
+    );
+  }
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
     '#value' => t('Save configuration'),
   );
   return $form;
+}
+
+/**
+ * Returns the IDs of the starter forums that still exist.
+ *
+ * The install records the seeded forum IDs in entity_forum.settings; this
+ * filters them to those still present, so the settings-page removal action is
+ * offered only while there is something to remove (and never re-offers forums
+ * a site has already deleted by hand).
+ *
+ * @return int[]
+ *   Forum IDs, in the order they were seeded (parent before child), filtered
+ *   to existing forums.
+ */
+function entity_forum_starter_forum_ids() {
+  $ids = config_get('entity_forum.settings', 'starter_forum_ids');
+  if (!is_array($ids) || !$ids) {
+    return array();
+  }
+  $existing = db_query('SELECT forum_id FROM {entity_forum_forum} WHERE forum_id IN (:ids)', array(
+    ':ids' => $ids,
+  ))->fetchCol();
+  $existing = array_map('intval', $existing);
+  // Preserve the recorded order (parent before child) so removal can delete
+  // children first.
+  return array_values(array_intersect(array_map('intval', $ids), $existing));
+}
+
+/**
+ * Form builder: confirm removal of the starter forums.
+ *
+ * Deletes only the forums seeded at install and still empty. A forum a site
+ * has actually used (it holds topics, or has grown its own sub-forums) is kept
+ * and reported, rather than taking members' content down with the demo — the
+ * same protection as the ordinary forum delete form, applied per forum.
+ */
+function entity_forum_remove_starter_forums_form($form, &$form_state) {
+  return confirm_form(
+    $form,
+    t('Remove the pre-installed starter forums?'),
+    'admin/content/entity-forum/settings',
+    t('The example forums (General Discussion, Classified Ads and Items for Sale) will be deleted. Any of them that you have posted topics into, or added your own sub-forums under, is kept. The classified topic type, its fields and the ad grid view are not removed.'),
+    t('Remove forums')
+  );
+}
+
+/**
+ * Submit handler for entity_forum_remove_starter_forums_form().
+ *
+ * Deletes the recorded starter forums that are empty, children first so a
+ * container is emptied before it is removed. Forums holding topics or carrying
+ * non-starter children are skipped and named. The recorded ID list is cleared
+ * of everything successfully removed.
+ */
+function entity_forum_remove_starter_forums_form_submit($form, &$form_state) {
+  // Deepest first: reversing the seeded order (parent-before-child) deletes a
+  // child before its container, so the container is childless when its turn
+  // comes.
+  $ids = array_reverse(entity_forum_starter_forum_ids());
+  $removed = array();
+  $kept = array();
+
+  foreach ($ids as $id) {
+    $forum = entity_load('entity_forum_forum', $id);
+    if (!$forum) {
+      continue;
+    }
+    $has_topics = (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic} WHERE forum_id = :id', array(':id' => $id))->fetchField();
+    $has_children = (int) db_query('SELECT COUNT(forum_id) FROM {entity_forum_forum} WHERE parent_id = :id', array(':id' => $id))->fetchField();
+    if ($has_topics || $has_children) {
+      $kept[] = check_plain($forum->title);
+      continue;
+    }
+    $forum->delete();
+    $removed[$id] = check_plain($forum->title);
+  }
+
+  // Drop the removed forums from the recorded list; keep any that survived so
+  // the action stays available until they too are gone (or deleted by hand).
+  $remaining = array_values(array_diff(
+    (array) config_get('entity_forum.settings', 'starter_forum_ids'),
+    array_keys($removed)
+  ));
+  config_set('entity_forum.settings', 'starter_forum_ids', $remaining);
+
+  if ($removed) {
+    backdrop_set_message(t('Removed the starter forum(s): !list.', array(
+      '!list' => implode(', ', $removed),
+    )));
+  }
+  if ($kept) {
+    backdrop_set_message(t('Kept !list — still in use (topics posted, or sub-forums added). Empty them first if you want them gone.', array(
+      '!list' => implode(', ', $kept),
+    )), 'warning');
+  }
+  $form_state['redirect'] = 'admin/content/entity-forum/settings';
 }
 
 /**

@@ -1,0 +1,6 @@
+{
+    "_config_name": "entity_forum.type.classified",
+    "type": "classified",
+    "label": "Classified Ad",
+    "description": "A classified advert, carrying its own price and contact fields."
+}

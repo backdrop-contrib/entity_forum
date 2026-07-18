@@ -1,0 +1,43 @@
+{
+    "_config_name": "field.instance.entity_forum_topic.classified.field_forum_ad_contact_name",
+    "field_name": "field_forum_ad_contact_name",
+    "entity_type": "entity_forum_topic",
+    "bundle": "classified",
+    "label": "Contact Name",
+    "widget": {
+        "weight": "1",
+        "type": "acuity_text_formatter_widget",
+        "module": "acuity_text_formatter",
+        "active": 1,
+        "settings": {
+            "acuity_formatter_settings": {
+                "trim": 0,
+                "case_transform": "intercapped"
+            }
+        }
+    },
+    "description": "",
+    "required": 0,
+    "deleted": 0,
+    "default_value": null,
+    "default_value_function": null,
+    "settings": {
+        "text_processing": 0,
+        "allowed_formats": [
+            "filtered_html",
+            "full_html",
+            "plain_text",
+            "plain_text"
+        ],
+        "user_register_form": false
+    },
+    "display": {
+        "default": {
+            "label": "inline",
+            "type": "text_default",
+            "weight": "1",
+            "settings": [],
+            "module": "text"
+        }
+    }
+}

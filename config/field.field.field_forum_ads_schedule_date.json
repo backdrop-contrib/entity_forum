@@ -1,0 +1,36 @@
+{
+    "_config_name": "field.field.field_forum_ads_schedule_date",
+    "field_name": "field_forum_ads_schedule_date",
+    "type": "datetime",
+    "translatable": false,
+    "module": "date",
+    "active": 1,
+    "locked": 0,
+    "cardinality": "1",
+    "deleted": 0,
+    "entity_types": [],
+    "settings": {
+        "granularity": {
+            "month": "month",
+            "day": "day",
+            "hour": "hour",
+            "minute": "minute",
+            "year": "year",
+            "second": 0
+        },
+        "tz_handling": "site",
+        "timezone_db": "UTC",
+        "cache_enabled": 0,
+        "cache_count": "4",
+        "todate": "optional",
+        "field_permissions": {
+            "type": "0"
+        }
+    },
+    "storage": {
+        "type": "field_sql_storage",
+        "settings": [],
+        "module": "field_sql_storage",
+        "active": 1
+    }
+}

@@ -1,5 +1,6 @@
 {
     "name": "forum_replies_admin",
+    "module": "entity_forum",
     "description": "",
     "tag": "",
     "disabled": false,
