@@ -1221,24 +1221,14 @@ function entity_forum_structure_page() {
     $manage,
   );
   // A reply's type is its topic's type, so reply fields live on each topic
-  // type's Replies tab, not on a reply-types page of their own. With a single
-  // type, the Reply row points straight at its Replies tab; with several, the
-  // type list is the only sensible landing (pick a type, then its Replies tab
-  // — each type row carries a Replies operation for that), so the two rows no
-  // longer collapse onto the identical URL.
-  if (count($topic_types) === 1) {
-    $reply_path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', key($topic_types)) . '/replies';
-    $reply_link = l(t('Reply'), $reply_path);
-    $reply_manage = l(t('Manage reply fields'), $reply_path);
-  }
-  else {
-    $reply_link = l(t('Reply'), 'admin/structure/entity-forum/topic-types');
-    $reply_manage = l(t('Manage reply fields'), 'admin/structure/entity-forum/topic-types');
-  }
+  // type's Replies tab, not on a reply-types page of their own. The Reply row
+  // leads to the reply fields overview — its own landing, one row per type
+  // with reply-only operations — never to the topic-types list: sending both
+  // rows to the same list read as "replies have no fields of their own".
   $rows[] = array(
-    $reply_link,
-    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — see each type\'s <em>Replies</em> tab. For example, an attendee count on replies to an event.'),
-    $reply_manage,
+    l(t('Reply'), 'admin/structure/entity-forum/replies'),
+    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — a collection separate from the topic\'s own fields. For example, an attendee count on replies to an event.'),
+    l(t('Manage reply fields'), 'admin/structure/entity-forum/replies'),
   );
   if (!$field_ui) {
     $build['notice'] = array(
@@ -1327,6 +1317,57 @@ function entity_forum_topic_types_page() {
   $build['types'] = array(
     '#theme' => 'table',
     '#header' => array(t('Name'), t('Machine name'), t('Description'), t('Topics'), t('Operations')),
+    '#rows' => $rows,
+  );
+  return $build;
+}
+
+/**
+ * Page callback: the reply fields overview (admin/structure/entity-forum/replies).
+ *
+ * The reply-side twin of entity_forum_topic_types_page(), in the same table
+ * shape. A reply's type is derived from its topic, so the reply bundles ARE
+ * the topic types — one row per type, but the operations here are the
+ * reply-only Field UI pages, never the topic's. Deliberately NO Edit
+ * operation: a reply bundle has no settings of its own (its "edit" is the
+ * topic type's edit form), and linking that here would send two rows to the
+ * same form — the exact confusion this page exists to remove.
+ *
+ * @return array
+ *   Render array.
+ */
+function entity_forum_reply_types_page() {
+  $build = array();
+  $field_ui = module_exists('field_ui');
+  $rows = array();
+
+  foreach (entity_forum_topic_types() as $machine_name => $topic_type) {
+    $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $machine_name) . '/replies';
+    $operations = array();
+    if ($field_ui) {
+      $operations[] = l(t('Manage fields'), $path . '/fields');
+      $operations[] = l(t('Manage display'), $path . '/display');
+    }
+    $usage = entity_forum_reply_type_usage($machine_name);
+    $rows[] = array(
+      l($topic_type->label, $path),
+      array('data' => check_plain($machine_name), 'class' => array('entity-forum-machine-name')),
+      format_plural($usage, '1 reply', '@count replies'),
+      implode(' | ', $operations),
+    );
+  }
+
+  $build['intro'] = array(
+    '#markup' => '<p>' . t('A reply takes its type from the topic it is posted in, so reply fields belong to a topic type — a collection separate from the topic\'s own fields. Pick the type whose replies you want to shape.') . '</p>',
+  );
+  if (!$field_ui) {
+    $build['notice'] = array(
+      '#markup' => '<div class="messages warning">' . t('Enable the <em>Field UI</em> module to add fields to replies.') . '</div>',
+    );
+  }
+  $build['types'] = array(
+    '#theme' => 'table',
+    '#header' => array(t('Name'), t('Machine name'), t('Replies'), t('Operations')),
     '#rows' => $rows,
   );
   return $build;

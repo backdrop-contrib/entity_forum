@@ -1020,6 +1020,24 @@ function entity_forum_topic_type_usage($machine_name) {
 }
 
 /**
+ * Counts the replies using a topic type.
+ *
+ * A reply's type is derived from its topic, so this is the reply-side twin of
+ * entity_forum_topic_type_usage() — used by the reply fields overview page.
+ *
+ * @param string $machine_name
+ *   The type to count.
+ *
+ * @return int
+ *   Number of replies on that type.
+ */
+function entity_forum_reply_type_usage($machine_name) {
+  return (int) db_query('SELECT COUNT(*) FROM {entity_forum_reply} WHERE type = :type', array(
+    ':type' => $machine_name,
+  ))->fetchField();
+}
+
+/**
  * Returns the topic type posted in a forum.
  *
  * The type is a property of the FORUM, set when the forum is created: a
@@ -1484,6 +1502,18 @@ function entity_forum_menu() {
     'page arguments' => array('entity_forum_topic_type_form'),
     'access arguments' => array('administer entity forum'),
     'type' => MENU_LOCAL_ACTION,
+    'file' => 'entity_forum.admin.inc',
+  );
+  // Reply fields overview: one table row per topic type (the reply bundle IS
+  // the topic type), each with reply-only Manage fields / Manage display
+  // operations. Exists so the structure page's Reply row has a landing of its
+  // own instead of collapsing onto the topic-types list — going to the same
+  // list from both rows read as "replies have no fields of their own".
+  $items['admin/structure/entity-forum/replies'] = array(
+    'title' => 'Reply fields',
+    'description' => 'Manage the fields and display of replies, per topic type.',
+    'page callback' => 'entity_forum_reply_types_page',
+    'access arguments' => array('administer entity forum'),
     'file' => 'entity_forum.admin.inc',
   );
   $items['admin/structure/entity-forum/topic-types/%entity_forum_topic_type'] = array(
