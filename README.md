@@ -8,6 +8,8 @@ the companion `entity_forum_importer` module: **WordPress bbPress** is
 supported today, with **Backdrop Forum**, **Forum NG** and **comments**
 converters in development.
 
+**This is a Beta release for deployment testing.**
+
 ---
 
 ## Why Entity Forum
