@@ -1,8 +1,7 @@
 # Entity Forum
 
-**Entity Forum** is a forum system for Backdrop CMS built on custom entities
-for forums, topics, and replies — in the vein of WordPress bbPress, or
-Backdrop's own Forum and Forum NG modules.
+**Entity Forum** is a forum system for Backdrop CMS built with custom entities
+for forums, topics, and replies, all fieldable.
 
 It runs on any Backdrop site, and existing forum content can be migrated in via
 the companion `entity_forum_importer` module: **WordPress bbPress** is
@@ -64,16 +63,11 @@ asking you to fight it.
   the threads they started.
 - **Forum pictures**: a module-owned avatar per member, with an admin-set
   default, shown on posts and in topic lists.
-
----
-
-## Requirements
-
-Backdrop CMS with the `entity`, `entity_plus` and `views` modules.
-
-Entity Forum provides the `forums`, `forum/*` and `topic/*` paths and replaces
-the core-style forum modules, so it **cannot run alongside `forum` or
-`forum_ng`** — installation is blocked while either is enabled.
+- **Removable starter content**: a fresh install seeds a plain discussion
+  forum and a worked classified-ads section (fielded topic type, offer-amount
+  reply field, ad grid view) so the module demonstrates itself out of the box.
+  One click on the settings page removes the demo forums; the classified type,
+  its fields and the grid view stay behind as reusable building blocks.
 
 ---
 
@@ -85,16 +79,130 @@ Backdrop Entity Forum. This is such a fringe case that we decided against
 allowing multiple forum imports. If it is something you require, please submit
 an issue — charges may apply for such development.
 
+Entity Forum provides the `forums`, `forum/*` and `topic/*` paths, so it
+**cannot run alongside `forum` or `forum_ng`** - installation is blocked
+while either is enabled.
+
 **Inline images stay public.** Images placed directly into post text are part
 of the content, so their URLs cannot be gated by forum privacy. Private-forum
 *attachments* (file and image fields) are gated.
 
+**CSS Styling** While some initial CSS styling have been created, there will
+be gaps where fields don't receive adequate CSS tags.
+If you would like a certain tag adding to the module please reiase an issue in
+the Git-Hub issue queue.
+
 ---
 
-## Related Modules
+## Related / Useful Modules
 
 - **entity_forum_importer** — imports existing forum content into Entity Forum.
   WordPress bbPress is the implemented source; converters for Backdrop's own
   `forum`, `forum_ng` and comments are planned alongside it. Disposable by
   design: remove it once a site's migration is done.
 - **Field Permissions** (contrib, optional) — per-field permissions, as above.
+- **Image library image access** (contrib, optional) - when forum members can
+    upload images through the editor, the core image library dialog lets them
+    browse EVERY image on the site. The image_library_image_access contrib
+    module limits users to their own uploads (plus a bypass permission).
+    [Image library image access](https://backdropcms.org/project/image_library_image_access)
+
+---
+
+## Requirements
+
+- Backdrop CMS 1.x
+- PHP 8.0+
+- Entity
+- Entity Plus
+- Views
+
+---
+
+## Installation
+
+Install this module using the official Backdrop CMS instructions at https://docs.backdropcms.org/documentation/extend-with-modules
+
+Enable the module, then clear your system caches to register the admin menu items.
+
+---
+
+## Configuration
+
+To add or modify fields on the Forum, Topics or Replies visit the "Forum structure" menu (Structure -> Forum structure) /admin/structure/entity-forum
+
+For general administration: -
+
+Content -> Forums (admin/content/entity-forum)
+
+### Tabs [Forum | Topics | Replies | Settings | Help]
+
+**Forum** - list of Forums - Customisable View
+- Add forum
+- visibility
+- Topic count
+- Status
+- Listed status
+- Operations [edit | delete]
+
+**Topics** - List of Topics with search - Customisable View (admin/content/entity-forum/topics)
+- Title
+- Type
+- Forum
+- Author
+- Replies
+- Last active
+- Listing
+- Status
+- Operations [edit | delete]
+
+**Replies** - List of replies - Customisable View (admin/content/entity-forum/replies)
+- Content
+- Topic
+- Author
+- Created
+- Status
+- Operations [edit | delete]
+
+**Settings** (admin/content/entity-forum/settings)
+- Default Forum pictures
+- Content discussions (comments replacement) - See below
+
+**Help** - (admin/content/entity-forum/help)
+
+
+**Content discussions** (comments replacement) (admin/content/entity-forum/settings/discussions/add)
+- Select Content Type (The content whose discussion appears below it. Remember to disable core comments on this type yourself.)
+- Select Discussion forum (The forum the discussion topics are created in.)
+- Show on [Every item of this type | Only items the author enables]
+- Remove re-installed forum
+
+---
+
+## Planned Features
+- Forum Importer
+- Forum NG Importer
+- Comments Importer
+
+---
+
+## Issues
+
+Bugs and feature requests should be reported in the Issue Queue: https://github.com/backdrop-contrib/entity_forum/issues
+
+---
+
+## Current Maintainer(s)
+- Steve Moorhouse (albanycomputers) (https://github.com/albanycomputers)
+- Additional maintainers and contributors welcome.
+
+---
+
+## Credits
+- Steve Moorhouse - Zulip (DrAlbany)
+- Assisted by AI.
+
+- Current development is sponsored by [Albany Computer Services](https://www.albany-computers.co.uk), providers of computer support, [web design](https://www.albanywebdesign.co.uk), and [web hosting](https://www.albany-hosting.co.uk).
+
+## License
+This project is GPL v2 or later software. See the LICENSE.txt file in this directory for complete text.

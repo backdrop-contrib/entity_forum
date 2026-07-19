@@ -16,6 +16,25 @@ function _entity_forum_add_css() {
 }
 
 /**
+ * Returns a plain-text excerpt of a post's body.
+ *
+ * The one way an excerpt is built (report form, moderation queue, account
+ * posts list): tags stripped, truncated on a word boundary with an ellipsis.
+ *
+ * @param object $entity
+ *   A loaded topic or reply entity.
+ * @param int $length
+ *   Maximum excerpt length in characters.
+ *
+ * @return string
+ *   The plain-text excerpt; '' when the post has no body.
+ */
+function _entity_forum_post_excerpt($entity, $length) {
+  $body = entity_forum_post_body_value($entity);
+  return truncate_utf8(strip_tags($body['value']), $length, TRUE, TRUE);
+}
+
+/**
  * Sets the forum breadcrumb: Home > Forums > ancestor chain > deepest.
  *
  * Each ancestor forum (and the deepest forum given) becomes a trail
@@ -80,7 +99,7 @@ function entity_forum_forum_page($forum) {
   $counts = entity_forum_forum_counts();
   $subforum_rows = array();
   foreach ($subforums as $subforum) {
-    if ($subforum->visibility === 'private' && !user_access('view private entity forum') && !user_access('administer entity forum')) {
+    if ($subforum->visibility === 'private' && !entity_forum_user_sees_private()) {
       continue;
     }
     $title = l($subforum->title, 'forum/' . $subforum->forum_id);
@@ -505,8 +524,7 @@ function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
   $form_state['report_entity'] = $entity;
   $form_state['report_topic'] = $topic;
 
-  $body = entity_forum_post_body_value($entity);
-  $excerpt = truncate_utf8(strip_tags($body['value']), 160, TRUE, TRUE);
+  $excerpt = _entity_forum_post_excerpt($entity, 160);
   $author = entity_forum_format_author($entity->author_uid, $entity->author_name);
   $form['heading'] = array(
     '#markup' => '<h3>' . t('Report to the moderators') . '</h3>',
@@ -674,8 +692,7 @@ function entity_forum_moderation_page() {
     $is_topic = $report->entity_type === 'entity_forum_topic';
     $target = entity_load($report->entity_type, $report->entity_id);
     if ($target) {
-      $target_body = entity_forum_post_body_value($target);
-      $excerpt = truncate_utf8(strip_tags($target_body['value']), 120, TRUE, TRUE);
+      $excerpt = _entity_forum_post_excerpt($target, 120);
       $target_cell = $is_topic
         ? l($target->title, 'topic/' . $target->id())
         : l($excerpt !== '' ? $excerpt : t('Reply #@id', array('@id' => $target->id())), 'topic/' . $target->topic_id, array('fragment' => 'reply-' . $target->id()));
@@ -708,6 +725,46 @@ function entity_forum_moderation_page() {
 }
 
 /**
+ * Builds access-checked Edit/Delete links for a post's admin forms.
+ *
+ * The shared tail of every moderation-row link set: the edit and delete
+ * links appear only when the viewer's entity access allows them, and both
+ * carry a destination so the forms return to the queue.
+ *
+ * @param string $type
+ *   'topic' or 'reply'.
+ * @param int $id
+ *   The entity ID.
+ * @param string|null $edit_title
+ *   Link text for the edit link; defaults to "Edit".
+ * @param string|null $delete_title
+ *   Link text for the delete link; defaults to "Delete".
+ *
+ * @return array
+ *   Links array for theme('links'); empty when the viewer may do neither.
+ */
+function _entity_forum_post_admin_links($type, $id, $edit_title = NULL, $delete_title = NULL) {
+  $links = array();
+  $access_callback = "entity_forum_{$type}_access";
+  $entity = entity_load("entity_forum_$type", $id);
+  if ($entity && $access_callback('update', $entity)) {
+    $links['edit'] = array(
+      'title' => isset($edit_title) ? $edit_title : t('Edit'),
+      'href' => "admin/content/entity-forum/$type/$id/edit",
+      'query' => backdrop_get_destination(),
+    );
+  }
+  if ($entity && $access_callback('delete', $entity)) {
+    $links['delete'] = array(
+      'title' => isset($delete_title) ? $delete_title : t('Delete'),
+      'href' => "admin/content/entity-forum/$type/$id/delete",
+      'query' => backdrop_get_destination(),
+    );
+  }
+  return $links;
+}
+
+/**
  * Builds the action links for one report row in the moderation queue.
  *
  * Resolve is a token-protected callback link; Edit and Delete act on
@@ -730,14 +787,7 @@ function _entity_forum_report_actions($report) {
     ),
   );
   $type = $report->entity_type === 'entity_forum_topic' ? 'topic' : 'reply';
-  $access_callback = "entity_forum_{$type}_access";
-  $target = entity_load($report->entity_type, $report->entity_id);
-  if ($target && $access_callback('update', $target)) {
-    $links['edit'] = array('title' => t('Edit post'), 'href' => "admin/content/entity-forum/$type/{$report->entity_id}/edit", 'query' => backdrop_get_destination());
-  }
-  if ($target && $access_callback('delete', $target)) {
-    $links['delete'] = array('title' => t('Delete post'), 'href' => "admin/content/entity-forum/$type/{$report->entity_id}/delete", 'query' => backdrop_get_destination());
-  }
+  $links += _entity_forum_post_admin_links($type, (int) $report->entity_id, t('Edit post'), t('Delete post'));
   return theme('links', array(
     'links' => $links,
     'attributes' => array('class' => array('links', 'inline')),
@@ -772,14 +822,7 @@ function _entity_forum_moderation_actions($type, $id) {
       'query' => array('token' => backdrop_get_token("entity_forum_moderation:hide:$type:$id")),
     ),
   );
-  $access_callback = "entity_forum_{$type}_access";
-  $entity = entity_load("entity_forum_$type", $id);
-  if ($entity && $access_callback('update', $entity)) {
-    $links['edit'] = array('title' => t('Edit'), 'href' => "admin/content/entity-forum/$type/$id/edit", 'query' => backdrop_get_destination());
-  }
-  if ($entity && $access_callback('delete', $entity)) {
-    $links['delete'] = array('title' => t('Delete'), 'href' => "admin/content/entity-forum/$type/$id/delete", 'query' => backdrop_get_destination());
-  }
+  $links += _entity_forum_post_admin_links($type, $id);
   return theme('links', array(
     'links' => $links,
     'attributes' => array('class' => array('links', 'inline')),
@@ -1406,8 +1449,7 @@ function entity_forum_user_posts_page($account) {
   $reply_rows = array();
   foreach ($reply_page as $reply) {
     $topic_title = db_query('SELECT title FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchField();
-    $body = isset($reply_entities[$reply->reply_id]) ? entity_forum_post_body_value($reply_entities[$reply->reply_id]) : array('value' => '');
-    $excerpt = truncate_utf8(strip_tags($body['value']), 80, TRUE, TRUE);
+    $excerpt = isset($reply_entities[$reply->reply_id]) ? _entity_forum_post_excerpt($reply_entities[$reply->reply_id], 80) : '';
     $reply_rows[] = array(
       l($excerpt !== '' ? $excerpt : t('Reply #@id', array('@id' => $reply->reply_id)), 'topic/' . $reply->topic_id, array('fragment' => 'reply-' . $reply->reply_id)),
       $topic_title !== FALSE ? check_plain($topic_title) : t('N/A'),

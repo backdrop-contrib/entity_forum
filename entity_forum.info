@@ -1,5 +1,5 @@
 name = Entity Forum
-description = Forum system with custom entities for forums, topics, and replies, similar to bbPress.
+description = Forum system with custom entities for forums, topics, and replies. Importer for WordPress bbPress.  Planned importers for Backdrop Forum and Forum NG.
 backdrop = 1.x
 type = module
 package = Forum

@@ -2,7 +2,7 @@
 
 /**
  * @file
- * Entity Forum: a bbPress-style forum built on custom entities.
+ * Entity Forum: a forum built on custom entities.
  *
  * Provides three entity types managed by EntityPlusController:
  * - entity_forum_forum: forum containers (nestable, public or private).
@@ -19,7 +19,7 @@
  * Deliberately named after the entity type rather than something tidier like
  * 'topic': field instances created before topics were bundleable already live
  * on a bundle of this name, so keeping it means existing sites need no
- * field_config_instance rewrite — only a column backfill. Sites are free to
+ * field_config_instance rewrite, only a column backfill. Sites are free to
  * add further types; nothing in the module treats this one as special beyond
  * being the fallback for a topic that arrives without a type.
  */
@@ -29,7 +29,7 @@ define('ENTITY_FORUM_TOPIC_TYPE_DEFAULT', 'entity_forum_topic');
  * A forum's topic_type when it accepts no topics at all.
  *
  * The "- None -" option on the forum form: the forum is a container holding
- * only sub-forums, the phpBB/bbPress "category". Deliberately the empty
+ * only sub-forums, the "category". Deliberately the empty
  * string rather than a reserved machine name, so it can never collide with a
  * type a site creates.
  */
@@ -51,7 +51,7 @@ define('ENTITY_FORUM_TOPIC_LIST_VIEW_DEFAULT', 'entity_forum_topics:default');
  * - admin_only: listed only for moderators (for review/moderation); the
  *   topic page itself is also restricted to moderators.
  * - unlisted: never listed, but the topic page stays viewable at its own
- *   URL — used for e.g. node-attached comment threads.
+ *   URL, used for e.g. node-attached comment threads.
  */
 define('ENTITY_FORUM_LISTING_NORMAL', 'normal');
 define('ENTITY_FORUM_LISTING_ADMIN_ONLY', 'admin_only');
@@ -92,9 +92,9 @@ define('ENTITY_FORUM_POSTING_SUSPENDED', 'suspended');
  */
 function entity_forum_posting_status_options() {
   return array(
-    ENTITY_FORUM_POSTING_NORMAL => t('Normal — posts appear immediately'),
-    ENTITY_FORUM_POSTING_REVIEW => t('Review — posts are held until a moderator approves them'),
-    ENTITY_FORUM_POSTING_SUSPENDED => t('Suspended — cannot post topics or replies'),
+    ENTITY_FORUM_POSTING_NORMAL => t('Normal - posts appear immediately'),
+    ENTITY_FORUM_POSTING_REVIEW => t('Review - posts are held until a moderator approves them'),
+    ENTITY_FORUM_POSTING_SUSPENDED => t('Suspended - cannot post topics or replies'),
   );
 }
 
@@ -102,7 +102,7 @@ function entity_forum_posting_status_options() {
  * Returns a member's forum posting status.
  *
  * Stored in the account data array like the posting name; absent means
- * normal. Anonymous (and gone) accounts report normal — they are gated
+ * normal. Anonymous (and gone) accounts report normal, they are gated
  * by permissions, not posting status.
  *
  * @param object|int|null $account
@@ -128,6 +128,44 @@ function entity_forum_user_posting_status($account = NULL) {
 }
 
 /**
+ * Sets (or removes) one key in a user's account data array.
+ *
+ * The single writer behind the module's account-data settings (posting
+ * status, posting name, forum picture fid). Re-reads the stored data row
+ * rather than trusting $account->data, so a form built against a stale
+ * account object cannot clobber keys written since it was loaded; persists
+ * and clears the user entity cache so the change is visible immediately.
+ *
+ * @param object $account
+ *   The account to write to.
+ * @param string $key
+ *   The data key.
+ * @param mixed $value
+ *   The value to store; NULL removes the key entirely.
+ */
+function _entity_forum_user_data_set($account, $key, $value) {
+  $stored = db_query('SELECT data FROM {users} WHERE uid = :uid', array(
+    ':uid' => $account->uid,
+  ))->fetchField();
+  $data = $stored ? unserialize($stored) : array();
+  if (!is_array($data)) {
+    $data = array();
+  }
+  if ($value === NULL) {
+    unset($data[$key]);
+  }
+  else {
+    $data[$key] = $value;
+  }
+  db_update('users')
+    ->fields(array('data' => serialize($data)))
+    ->condition('uid', $account->uid)
+    ->execute();
+  $account->data = $data;
+  entity_get_controller('user')->resetCache(array($account->uid));
+}
+
+/**
  * Saves a member's forum posting status.
  *
  * 'normal' removes the entry from the account data array so unrestricted
@@ -139,19 +177,8 @@ function entity_forum_user_posting_status($account = NULL) {
  *   One of the ENTITY_FORUM_POSTING_* values.
  */
 function entity_forum_posting_status_save($account, $status) {
-  $data = $account->data;
-  if ($status === ENTITY_FORUM_POSTING_REVIEW || $status === ENTITY_FORUM_POSTING_SUSPENDED) {
-    $data['entity_forum_posting_status'] = $status;
-  }
-  else {
-    unset($data['entity_forum_posting_status']);
-  }
-  db_update('users')
-    ->fields(array('data' => serialize($data)))
-    ->condition('uid', $account->uid)
-    ->execute();
-  $account->data = $data;
-  entity_get_controller('user')->resetCache(array($account->uid));
+  $restricted = ($status === ENTITY_FORUM_POSTING_REVIEW || $status === ENTITY_FORUM_POSTING_SUSPENDED);
+  _entity_forum_user_data_set($account, 'entity_forum_posting_status', $restricted ? $status : NULL);
 }
 
 /**
@@ -159,7 +186,7 @@ function entity_forum_posting_status_save($account, $status) {
  *
  * The built-in rule holds posts by members with the 'review' posting
  * status. Other modules can add their own rules (AI moderation,
- * probation periods, ...) via hook_entity_forum_post_hold_alter() —
+ * probation periods, ...) via hook_entity_forum_post_hold_alter() -
  * see entity_forum.api.php. Called by the frontend topic and reply form
  * submits before the entity is saved; the hold itself uses the existing
  * machinery (admin_only listing for topics, unpublished for replies)
@@ -241,6 +268,8 @@ function entity_forum_entity_info() {
   // reply's type is derived from its topic (a reply in a Classified topic is
   // a Classified reply), so reply fields are managed under the topic type
   // rather than in a parallel type system of their own.
+  // @todo - review this - changed the admin form and the description is no
+  // longer accurate - need to push a beta release so that we can get feedback on this.
   $topic_bundles = array();
   $reply_bundles = array();
   foreach (entity_forum_topic_types() as $machine_name => $topic_type) {
@@ -312,7 +341,7 @@ function entity_forum_entity_info() {
       'bundle' => 'type',
     ),
     // Which property of a topic TYPE object holds the bundle name. Distinct
-    // from entity keys' 'bundle', which is the property on a topic itself —
+    // from entity keys' 'bundle', which is the property on a topic itself -
     // field_extract_bundle() reads this one to turn the object returned by
     // entity_forum_topic_type_load() back into a bundle name, and Field UI's
     // menu loader depends on it.
@@ -387,7 +416,7 @@ function entity_forum_autoload_info() {
 /**
  * Implements hook_views_plugins().
  *
- * Registers the "Forum hierarchy" style — a Table style that re-orders its
+ * Registers the "Forum hierarchy" style - a Table style that re-orders its
  * rows depth-first and indents one column by nesting depth, so the forums
  * index and admin forum overview can be built as Views without losing the
  * parent/child tree (Views ships no tree style of its own). The class is
@@ -423,6 +452,7 @@ function entity_forum_views_plugins() {
  * author's forum picture (see entity_forum_format_avatar()) from the
  * row's author_uid. A custom handler because the picture is module-owned
  * account data, not a user field Views could reach via a relationship.
+ * We chose this way because the Core user picture isn't as configurable.
  */
 function entity_forum_views_data_alter(&$data) {
   foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
@@ -440,7 +470,7 @@ function entity_forum_views_data_alter(&$data) {
   }
 
   // Header/footer area: the "Post new topic" link, access-checked. Views'
-  // own Text area cannot do this — it has no idea who is looking, and a
+  // own Text area cannot do this, it has no idea who is looking, and a
   // display's access setting gates the whole view rather than one region.
   if (isset($data['entity_forum_topic'])) {
     $data['entity_forum_topic']['post_link'] = array(
@@ -454,11 +484,11 @@ function entity_forum_views_data_alter(&$data) {
 
   // Topic type: a plain varchar column would give Views a free-text filter
   // that a site builder has to type machine names into. Swap it for a
-  // checkbox list of the site's types — this is the filter a sitedev reaches
+  // checkbox list of the site's types, this is the filter a sitedev reaches
   // for when copying the shipped topics view to list one kind of topic.
   // The stored value is a bundle machine name; render it as the type label
   // (entity_forum_handler_field_value_label) so a column reads "Support
-  // question", not "entity_forum_topic" — the labels callback resolves at
+  // question", not "entity_forum_topic", the labels callback resolves at
   // render time so newly added types need no view change.
   if (isset($data['entity_forum_topic']['type'])) {
     $data['entity_forum_topic']['type']['title'] = t('Topic type');
@@ -469,7 +499,7 @@ function entity_forum_views_data_alter(&$data) {
     $data['entity_forum_topic']['type']['filter']['options callback'] = 'entity_forum_topic_type_labels';
   }
   // Replies share the topic types as their bundles, so the same filter and
-  // label rendering work — "replies in Classified topics" without a
+  // label rendering work, "replies in Classified topics" without a
   // relationship.
   if (isset($data['entity_forum_reply']['type'])) {
     $data['entity_forum_reply']['type']['title'] = t('Reply type');
@@ -482,7 +512,7 @@ function entity_forum_views_data_alter(&$data) {
 
   // Topic list visibility: stored as 'normal' / 'admin_only' / 'unlisted'.
   // Render the human label (same value_label handler) so the admin topics
-  // view — and any view a site builder copies from it — shows "Moderators
+  // view, and any view a site builder copies from it, shows "Moderators
   // only" rather than the raw state.
   if (isset($data['entity_forum_topic']['listing'])) {
     $data['entity_forum_topic']['listing']['title'] = t('Topic list visibility');
@@ -497,7 +527,7 @@ function entity_forum_views_data_alter(&$data) {
 
   // Aggregate count fields on the forum base table, so a forums-list View
   // can show per-forum totals (rolled up to include sub-forums) without
-  // any per-row count queries — they all read the cached counts map from
+  // any per-row count queries, they all read the cached counts map from
   // entity_forum_forum_counts(). See entity_forum_handler_field_forum_count.
   if (isset($data['entity_forum_forum'])) {
     $data['entity_forum_forum']['topic_count'] = array(
@@ -543,14 +573,14 @@ function entity_forum_views_data_alter(&$data) {
     );
 
     // The forum "name" cell for a forums index: the linked title, a
-    // "(private)" marker, and the formatted description under it — one field,
+    // "(private)" marker, and the formatted description under it, one field,
     // because the hierarchy style indents a single field's value as a unit and
     // the three parts must indent together (see
     // entity_forum_handler_field_forum_link). It is the identity column of a
     // forum list; Topics / Last activity stay separate, editable columns.
     $data['entity_forum_forum']['forum_link'] = array(
       'title' => t('Forum name and description'),
-      'help' => t('The linked forum title with a "(private)" marker and its formatted description below — the forum-index cell. Use as the indented column of the Forum hierarchy style.'),
+      'help' => t('The linked forum title with a "(private)" marker and its formatted description below, the forum-index cell. Use as the indented column of the Forum hierarchy style.'),
       'field' => array(
         'handler' => 'entity_forum_handler_field_forum_link',
         'real field' => 'forum_id',
@@ -560,7 +590,7 @@ function entity_forum_views_data_alter(&$data) {
 
     // Header/footer/empty area: the moderator queue panel, shown only to
     // moderators and only when items are waiting. Same per-viewer reason as
-    // the post-link area — a display's access gates the whole view, not one
+    // the post-link area, a display's access gates the whole view, not one
     // region. See entity_forum_handler_area_moderation_panel.
     $data['entity_forum_forum']['moderation_panel'] = array(
       'title' => t('Moderation panel'),
@@ -570,6 +600,25 @@ function entity_forum_views_data_alter(&$data) {
       ),
     );
   }
+}
+
+/**
+ * Whether an account may view private forums.
+ *
+ * THE private-visibility test, the query alter, the forum access callback
+ * and the sub-forum lists must all give the same answer, and three inlined
+ * copies of the same permission pair is exactly how an access rule drifts.
+ * Any new code deciding "may this viewer see a private forum?" calls this.
+ *
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return bool
+ *   TRUE when the account may view private forums.
+ */
+function entity_forum_user_sees_private($account = NULL) {
+  return user_access('view private entity forum', $account)
+    || user_access('administer entity forum', $account);
 }
 
 /**
@@ -595,28 +644,36 @@ function entity_forum_private_forum_ids() {
  * Implements hook_views_query_alter().
  *
  * Applies the forum visibility rules to every View on ANY of the module's
- * base tables — the shipped views and any view a sitedev builds — so that
+ * base tables, the shipped views and any view a sitedev builds, so that
  * building or copying one can never widen who sees what. The page callbacks
  * gate the same content, but a view does not go through them.
  *
  * Private forums: the forums themselves, and the topics and replies in them,
  * are removed for viewers without 'view private entity forum'. This rule has
- * NO opt-out — a view is not a safe place to make an exception to an access
+ * NO opt-out, a view is not a safe place to make an exception to an access
  * gate.
  *
  * Listing (topics): only normally listed topics appear, plus admin_only
  * topics when the viewer is a moderator. Unlisted topics (e.g.
  * node-attached comment threads) stay out of all topic lists. A view that
- * defines its own 'listing' filter is left alone — that is the opt-out for
+ * defines its own 'listing' filter is left alone, that is the opt-out for
  * special-purpose views such as moderation queues.
  *
  * Listing (replies): only replies of admin_only topics are removed, and
- * only for non-moderators. Deliberately narrower than the topic rule —
+ * only for non-moderators. Deliberately narrower than the topic rule,
  * admin_only is a confidentiality state (the topic page 403s for
  * non-moderators), whereas unlisted only means "not in topic lists" and
  * its topic page is public by design, so hiding unlisted topics' replies
  * would serve no one and would strip node-attached discussions out of
  * reply listings.
+ *
+ * Published status (topics and replies): status = 1 for non-moderators,
+ * unless the view defines its own 'status' filter, the same opt-out
+ * convention as 'listing'. A reply "kept hidden" by moderation is
+ * unpublished on a NORMAL topic, so it is the same confidentiality class as
+ * an admin_only topic and must not depend on every copied view remembering
+ * a Published filter. All the shipped views define one, so this rule only
+ * engages on a copy that dropped it.
  */
 function entity_forum_views_query_alter(&$view, &$query) {
   $base = $view->base_table;
@@ -624,10 +681,10 @@ function entity_forum_views_query_alter(&$view, &$query) {
     return;
   }
 
-  $may_see_private = user_access('view private entity forum') || user_access('administer entity forum');
+  $may_see_private = entity_forum_user_sees_private();
 
   // A view listing the FORUMS themselves (e.g. the shipped entity_forum_forums
-  // index). Filtered on the forum's own visibility — a private forum is hidden,
+  // index). Filtered on the forum's own visibility, a private forum is hidden,
   // but its public children are not.
   if ($base === 'entity_forum_forum') {
     if (!$may_see_private) {
@@ -643,6 +700,14 @@ function entity_forum_views_query_alter(&$view, &$query) {
     if ($private = entity_forum_private_forum_ids()) {
       $query->add_where(0, $base . '.forum_id', $private, 'NOT IN');
     }
+  }
+
+  // Published status: held replies are hidden by status = 0 (their topic's
+  // listing stays normal), so a view without a Published filter would list
+  // them. Opt-out by defining a 'status' filter, mirroring 'listing' below,
+  // the admin views do, keeping their exposed Published filter working.
+  if (!isset($view->filter['status']) && !entity_forum_user_is_moderator()) {
+    $query->add_where(0, $base . '.status', 1);
   }
 
   if (isset($view->filter['listing'])) {
@@ -670,18 +735,18 @@ function entity_forum_views_query_alter(&$view, &$query) {
 /**
  * Implements hook_field_extra_fields().
  *
- * Puts the built-in properties a sitedev actually arranges — the forum and
- * topic titles, and the forum description — into Field UI beside the attached
+ * Puts the built-in properties a sitedev actually arranges, the forum and
+ * topic titles, and the forum description, into Field UI beside the attached
  * fields, so a field can be ordered relative to them. Without this the
  * built-ins carry no weight at all, and the moment ANY field has one,
  * element_children() sorts every sibling through an unstable sort: give a
- * classified's price a low weight and it appears above the title, with the
+ * field a low weight and it appears above the title, with the
  * title then landing in arbitrary order. Weighting them all is what makes the
  * form deterministic.
  *
- * The post BODY is not listed here: it is a real field now (entity_forum_body,
- * per topic type), so Field UI already lays it out and — unlike an extra
- * field — it carries widget settings, which is what lets a forum builder pick
+ * The post BODY is not listed here: it is a real field (entity_forum_body,
+ * per topic type), so Field UI already lays it out and, unlike an extra
+ * field, it carries widget settings, which is what lets a forum builder pick
  * its widget and text format and lets acuity_text_formatter attach to it.
  *
  * Field UI offers no Delete for extra fields, which is exactly right: these
@@ -693,7 +758,7 @@ function entity_forum_views_query_alter(&$view, &$query) {
  *
  * Deliberately 'form' only, no 'display': the posts are rendered by
  * _entity_forum_render_post() and the forum listings, which do not consult
- * the display settings — declaring a display context we do not honour would
+ * the display settings, declaring a display context we do not honour would
  * put controls in the UI that silently do nothing.
  */
 function entity_forum_field_extra_fields() {
@@ -712,8 +777,8 @@ function entity_forum_field_extra_fields() {
     ),
   );
 
-  // Topics are bundleable, so every topic type gets its own title extra field
-  // — a Classified's price can sit above its title without moving anything on
+  // Topics are bundleable, so every topic type gets its own title extra field,
+  // a field can sit above its title without moving anything on
   // an ordinary topic. Replies have no title, so no reply entry is needed.
   foreach (array_keys(entity_forum_topic_types()) as $machine_name) {
     $extra['entity_forum_topic'][$machine_name]['form'] = array(
@@ -733,7 +798,7 @@ function entity_forum_field_extra_fields() {
  *
  * hook_field_extra_fields() only makes the built-in properties APPEAR on the
  * Manage fields screen; the weights it stores there do nothing until a form
- * reads them back — which is this. Call after field_attach_form(), so the
+ * reads them back, which is this. Call after field_attach_form(), so the
  * built-ins and the real widgets are weighted from the same source.
  *
  * @param array $form
@@ -776,7 +841,7 @@ function entity_forum_config_info() {
  * Field UI, with no forum code involved.
  *
  * The default type is synthesised when its config is missing, because a
- * fieldable entity type must never report zero bundles — Field API, every
+ * fieldable entity type must never report zero bundles, Field API, every
  * topic form and entity_extract_ids() all need the bundle to resolve, and a
  * site with no types at all would fatal rather than merely look empty.
  *
@@ -840,7 +905,7 @@ function entity_forum_topic_type_labels() {
  * Title callback: a topic type's label.
  *
  * Lives here, not in entity_forum.admin.inc, and must stay here: a title
- * callback is invoked while rendering CHILD paths too — Field UI's
+ * callback is invoked while rendering CHILD paths too, Field UI's
  * .../fields and .../display tabs are separate menu items carrying their own
  * 'file', so this menu item's file is never loaded for them and the callback
  * would not exist. Core keeps node_type_page_title() in node.module for the
@@ -859,7 +924,7 @@ function entity_forum_topic_type_title($topic_type) {
 /**
  * Menu loader: loads a topic type from its machine name.
  *
- * Also the bundle loader Field UI uses — field_ui_menu_load() runs
+ * Also the bundle loader Field UI uses, field_ui_menu_load() runs
  * field_extract_bundle() over whatever this returns, which reads the entity's
  * bundle key ('type') off the object, so the return value must carry it.
  *
@@ -878,8 +943,8 @@ function entity_forum_topic_type_load($name) {
 /**
  * Adds the body field to one post-type bundle, creating the field if needed.
  *
- * The body of a topic and of a reply is a real field — entity_forum_body, a
- * shared text_long field with one instance per bundle — rather than a base
+ * The body of a topic and of a reply is a real field, entity_forum_body, a
+ * shared text_long field with one instance per bundle, rather than a base
  * column, so a forum builder chooses its widget and text format per topic
  * type through Field UI (and a widget-configuring module like
  * acuity_text_formatter can attach to it, which the old built-in property
@@ -916,7 +981,7 @@ function entity_forum_add_body_field($entity_type, $bundle, $label) {
       'label' => $label,
       // Not required by default, exactly like core's node_add_body_field(): a
       // forum builder ticks "Required" per type when they want to enforce it.
-      // Leaving it optional keeps node-attached discussion topics (empty body —
+      // Leaving it optional keeps node-attached discussion topics (empty body -
       // the node is the opening post) valid without any special case, and
       // avoids baking a posting policy into a general module.
       'required' => FALSE,
@@ -952,7 +1017,7 @@ function entity_forum_topic_type_add_body($machine_name) {
  * Returns a post's raw body value and text format from the body field.
  *
  * The single accessor for code that needs the body as data rather than as
- * rendered output — excerpts, teasers and the moderation queue, which
+ * rendered output, excerpts, teasers and the moderation queue, which
  * truncate or re-check it. Rendered output goes through
  * _entity_forum_post_body_html() instead. Operates on a loaded entity (the
  * body field must be attached), so it never issues its own query.
@@ -966,7 +1031,9 @@ function entity_forum_topic_type_add_body($machine_name) {
  */
 function entity_forum_post_body_value($entity) {
   $items = field_get_items($entity->entityType(), $entity, 'entity_forum_body');
-  if (!empty($items[0]['value'])) {
+  // isset + !== '', not empty(): a body consisting of the single character
+  // "0" is still a body.
+  if (isset($items[0]['value']) && $items[0]['value'] !== '') {
     return array(
       'value' => (string) $items[0]['value'],
       'format' => isset($items[0]['format']) ? $items[0]['format'] : NULL,
@@ -994,7 +1061,7 @@ function entity_forum_topic_type_save($type) {
  * Deletes a topic type's config.
  *
  * Callers are responsible for refusing to delete a type that still has
- * topics, or the default type — see entity_forum_topic_type_delete_form().
+ * topics, or the default type, see entity_forum_topic_type_delete_form().
  *
  * @param string $machine_name
  *   The type to delete.
@@ -1023,7 +1090,7 @@ function entity_forum_topic_type_usage($machine_name) {
  * Counts the replies using a topic type.
  *
  * A reply's type is derived from its topic, so this is the reply-side twin of
- * entity_forum_topic_type_usage() — used by the reply fields overview page.
+ * entity_forum_topic_type_usage(), used by the reply fields overview page.
  *
  * @param string $machine_name
  *   The type to count.
@@ -1043,7 +1110,7 @@ function entity_forum_reply_type_usage($machine_name) {
  * The type is a property of the FORUM, set when the forum is created: a
  * classifieds forum holds classified ads, and posting never asks. A forum
  * that needs a different kind of topic gets a sub-forum. This is what
- * replaced scoping fields to particular forums — the fields belong to the
+ * replaced scoping fields to particular forums, the fields belong to the
  * type, and the forum picks the type, so Field API does the rest.
  *
  * Falls back to the default type when the forum names a type that has since
@@ -1058,7 +1125,7 @@ function entity_forum_reply_type_usage($machine_name) {
 function entity_forum_forum_topic_type($forum) {
   $machine_name = isset($forum->topic_type) ? (string) $forum->topic_type : '';
 
-  // Empty is a DELIBERATE choice — "- None -" on the forum form — meaning a
+  // Empty is a DELIBERATE choice, "- None -" on the forum form, meaning a
   // container forum that holds only sub-forums. Distinct from the case
   // below, and the two must never be collapsed: same column, opposite
   // outcomes.
@@ -1095,15 +1162,15 @@ function entity_forum_forum_is_container($forum) {
  *
  * The forum page used to embed one hardcoded view display for every forum on
  * every site. Choosing it per forum is what lets a sitedev's copy of the
- * topics view actually be USED — a classifieds forum rendering as an ad grid
- * while General stays a topic table — instead of only ever living on a
+ * topics view actually be USED, a classifieds forum rendering as an ad grid
+ * while General stays a topic table, instead of only ever living on a
  * standalone page.
  *
  * Falls back to the shipped default when the forum names a view or display
  * that has since been deleted, on the same principle as
  * entity_forum_forum_topic_type(): deleting config must not leave a forum
  * with no topic list at all. Unlike topic_type, empty is NOT a distinct
- * outcome here — a forum that takes no topics is already a container, and its
+ * outcome here, a forum that takes no topics is already a container, and its
  * list is not rendered either way.
  *
  * @param EntityForumForum $forum
@@ -1128,7 +1195,7 @@ function entity_forum_forum_topic_list_view($forum) {
     }
   }
 
-  // The default itself is missing — the sitedev deleted the shipped view.
+  // The default itself is missing, the sitedev deleted the shipped view.
   // Return it anyway: views_embed_view() renders nothing for an unknown view,
   // which is the honest outcome, and inventing a substitute here would only
   // hide what they did.
@@ -1140,7 +1207,7 @@ function entity_forum_forum_topic_list_view($forum) {
  * Returns the view displays that can render a forum's topic list.
  *
  * Offers only displays that can actually do the job: built on the topic base
- * table, and carrying a forum ID argument — the forum page embeds the display
+ * table, and carrying a forum ID argument, the forum page embeds the display
  * with the forum's ID, and a display with nowhere to receive it would show
  * every forum's topics in every forum.
  *
@@ -1167,7 +1234,7 @@ function entity_forum_topic_list_view_options() {
     foreach (array_keys($view->display) as $display_id) {
       $view->set_display($display_id);
       // get_option() on the display handler resolves the display's own
-      // arguments or the default display's, per what it overrides — reading
+      // arguments or the default display's, per what it overrides, reading
       // display_options directly would miss that.
       $arguments = $view->display_handler->get_option('arguments');
       $has_forum_argument = FALSE;
@@ -1268,7 +1335,7 @@ function entity_forum_menu() {
 
   // Frontend. The forums index (/forums) is a shipped view (entity_forum_forums)
   // on the Forum hierarchy style, with the moderator panel as a header area
-  // handler — do NOT declare 'forums' here; the view's page display owns it.
+  // handler, do NOT declare 'forums' here; the view's page display owns it.
   $items['forum/%entity_forum_forum'] = array(
     'title callback' => 'entity_label',
     'title arguments' => array('entity_forum_forum', 1),
@@ -1279,8 +1346,7 @@ function entity_forum_menu() {
     'file' => 'entity_forum.pages.inc',
   );
   // Posting. The topic type comes from the forum, so there is nothing to
-  // choose and no type in the URL: this path is simply the form, exactly as
-  // it was before types existed.
+  // choose and no type in the URL: this path is simply the form.
   $items['forum/%entity_forum_forum/new-topic'] = array(
     'title' => 'New topic',
     'page callback' => 'backdrop_get_form',
@@ -1299,7 +1365,7 @@ function entity_forum_menu() {
     'file' => 'entity_forum.pages.inc',
   );
   // The reply form as its own page, reached from the per-post "Reply"
-  // links. One reply route, one reply form — the fields a site attaches to
+  // links. One reply route, one reply form, the fields a site attaches to
   // the reply type are always present on it.
   $items['topic/%entity_forum_topic/reply'] = array(
     'title' => 'Reply',
@@ -1309,7 +1375,7 @@ function entity_forum_menu() {
     'access arguments' => array(1),
     'file' => 'entity_forum.pages.inc',
   );
-  // Author self-service close/reopen ("mark as sold") — a token-protected
+  // Author self-service close/reopen ("mark as sold"), a token-protected
   // action link, offered only in forums with the author_close setting.
   $items['topic/%entity_forum_topic/toggle-closed'] = array(
     'page callback' => 'entity_forum_topic_toggle_closed',
@@ -1389,11 +1455,11 @@ function entity_forum_menu() {
   //   tab" page display at admin/content/entity-forum/forums that also creates
   //   the parent admin/content/entity-forum item (a tab on admin/content). It
   //   uses the entity_forum_forum_hierarchy style so forums indent under their
-  //   parent — the tree the old code callback hand-rolled, now a Views style.
+  //   parent, the tree the old code callback hand-rolled, now a Views style.
   // - Topics: entity_forum_topics_admin at .../topics.
   // - Replies: forum_replies_admin at .../replies.
   // See config/views.view.*.json. Do NOT redeclare admin/content/entity-forum
-  // or .../forums here — the view owns them, and a hook_menu item would collide.
+  // or .../forums here, the view owns them, and a hook_menu item would collide.
   $items['admin/content/entity-forum/settings'] = array(
     'title' => 'Settings',
     'page callback' => 'backdrop_get_form',
@@ -1406,9 +1472,9 @@ function entity_forum_menu() {
   // Help tab. Backdrop core has dropped hook_help(), so this is our own menu
   // item + page callback rather than a hook_help() implementation. The page
   // is written as four independently-anchored audience sections (site
-  // builders, forum builders, moderators, members) so it can later be split
-  // — the moderator and member sections to frontend pages with their own
-  // access — without rewriting the content. Gated on the admin permission
+  // builders, forum builders, moderators, members) so it can later be split,
+  // the moderator and member sections to frontend pages with their own
+  // access, without rewriting the content. Gated on the admin permission
   // for now, which is why every section currently lives behind this tab.
   $items['admin/content/entity-forum/help'] = array(
     'title' => 'Help',
@@ -1754,7 +1820,7 @@ function entity_forum_forum_access($op, $forum = NULL, $account = NULL, $entity_
   switch ($op) {
     case 'view':
       if ($forum && $forum->visibility === 'private') {
-        return user_access('view private entity forum', $account) || user_access('administer entity forum', $account);
+        return entity_forum_user_sees_private($account);
       }
       return TRUE;
 
@@ -1918,6 +1984,29 @@ function entity_forum_rescheme_file($file) {
 }
 
 /**
+ * Loads and re-schemes a set of managed files, counting the moves.
+ *
+ * The shared tail of every re-scheming pass: the callers differ only in
+ * which {file_usage} query produces the candidate fids.
+ *
+ * @param array $fids
+ *   Managed file IDs to check.
+ *
+ * @return int
+ *   Count of files moved.
+ */
+function _entity_forum_rescheme_fids(array $fids) {
+  $moved = 0;
+  foreach ($fids as $fid) {
+    $file = file_load($fid);
+    if ($file && entity_forum_rescheme_file($file)) {
+      $moved++;
+    }
+  }
+  return $moved;
+}
+
+/**
  * Re-schemes the field files used by a forum's posts.
  *
  * Called when a forum's visibility changes so its posts' files move into
@@ -1936,14 +2025,7 @@ function entity_forum_rescheme_forum_files($forum_id) {
     LEFT JOIN {entity_forum_reply} r ON u.type = 'entity_forum_reply' AND r.reply_id = u.id
     WHERE u.module = 'file' AND u.type IN ('entity_forum_topic', 'entity_forum_reply')
       AND COALESCE(t.forum_id, r.forum_id) = :forum_id", array(':forum_id' => $forum_id))->fetchCol();
-  $moved = 0;
-  foreach ($fids as $fid) {
-    $file = file_load($fid);
-    if ($file && entity_forum_rescheme_file($file)) {
-      $moved++;
-    }
-  }
-  return $moved;
+  return _entity_forum_rescheme_fids($fids);
 }
 
 /**
@@ -1990,14 +2072,7 @@ function entity_forum_rescheme_post_files($entity_type, $id) {
     ':type' => $entity_type,
     ':id' => $id,
   ))->fetchCol();
-  $moved = 0;
-  foreach ($fids as $fid) {
-    $file = file_load($fid);
-    if ($file && entity_forum_rescheme_file($file)) {
-      $moved++;
-    }
-  }
-  return $moved;
+  return _entity_forum_rescheme_fids($fids);
 }
 
 /**
@@ -3031,19 +3106,7 @@ function entity_forum_avatar_save($account, $fid) {
     file_delete($old_file->fid);
   }
 
-  $data = $account->data;
-  if ($fid) {
-    $data['entity_forum_avatar_fid'] = $fid;
-  }
-  else {
-    unset($data['entity_forum_avatar_fid']);
-  }
-  db_update('users')
-    ->fields(array('data' => serialize($data)))
-    ->condition('uid', $account->uid)
-    ->execute();
-  $account->data = $data;
-  entity_get_controller('user')->resetCache(array($account->uid));
+  _entity_forum_user_data_set($account, 'entity_forum_avatar_fid', $fid ? $fid : NULL);
 }
 
 /**
@@ -3705,19 +3768,7 @@ function entity_forum_user_posts_access($account) {
  */
 function entity_forum_posting_name_save($account, $posting_name) {
   $posting_name = trim($posting_name);
-
-  $data = $account->data;
-  if ($posting_name === '') {
-    unset($data['entity_forum_posting_name']);
-  }
-  else {
-    $data['entity_forum_posting_name'] = $posting_name;
-  }
-  db_update('users')
-    ->fields(array('data' => serialize($data)))
-    ->condition('uid', $account->uid)
-    ->execute();
-  entity_get_controller('user')->resetCache(array($account->uid));
+  _entity_forum_user_data_set($account, 'entity_forum_posting_name', $posting_name === '' ? NULL : $posting_name);
 
   // Refresh the snapshots on existing posts.
   $fresh = user_load($account->uid);

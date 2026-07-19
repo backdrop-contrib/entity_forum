@@ -2,18 +2,18 @@
 
 /**
  * @file
- * Install, update, and uninstall functions for the Entity Forum module.
- */
+ * Install, uninstall and schema functions for the Entity Forum module.
+  */
 
 /**
  * Implements hook_requirements().
  *
- * Entity Forum provides the forums, forum/* and topic/* paths and replaces the
- * core-style forum modules. Installing it alongside 'forum' or 'forum_ng'
- * would leave the site with two competing forum systems fighting over the
- * same URLs, so installation is blocked while either is enabled, and the
- * status report warns if a conflict (or a leftover path override such as a
- * stale forum_ng view) appears later.
+ * Entity Forum provides the forums, forum/* and topic/* paths and replaces.
+ * Installing it alongside 'forum' or 'forum_ng' would leave the site with
+ * two competing forum systems fighting over the  same URLs, so installation
+ * is blocked while either is enabled, and the status report warns if a
+ * conflict (or a leftover path override such as a stale forum_ng view)
+ * appears later.
  *
  * @param string $phase
  *   The phase in which requirements are checked: 'install' or 'runtime'.
@@ -62,15 +62,32 @@ function entity_forum_requirements($phase) {
 
     // Even with conflicting modules disabled, a leftover Views page (e.g.
     // the forum_ng view kept in active config) can still override the
-    // forums path. Verify Entity Forum actually owns its front page.
-    $owner = db_query("SELECT page_callback FROM {menu_router} WHERE path = 'forums'")->fetchField();
-    if ($owner && $owner !== 'entity_forum_forums_page') {
+    // forums path. Verify Entity Forum actually owns its front page: the
+    // index is the shipped entity_forum_forums view, so the router entry is
+    // views_page with that view as its first page argument, any other
+    // callback, or another view's page display, is an override.
+    $router = db_query("SELECT page_callback, page_arguments FROM {menu_router} WHERE path = 'forums'")->fetchAssoc();
+    $served_by_us = FALSE;
+    $owner = '';
+    if ($router) {
+      $owner = $router['page_callback'];
+      if ($owner === 'views_page') {
+        $args = @unserialize($router['page_arguments']);
+        $view_name = is_array($args) ? reset($args) : '';
+        $served_by_us = ($view_name === 'entity_forum_forums');
+        // Name the overriding view, not just views_page.
+        if (!$served_by_us && $view_name) {
+          $owner = t('the %view view', array('%view' => $view_name));
+        }
+      }
+    }
+    if ($router && !$served_by_us) {
       $requirements['entity_forum_path'] = array(
         'title' => t('Entity Forum front page'),
         'value' => t('Overridden'),
-        'description' => t('The <a href="@url">forums</a> path is currently served by %callback instead of Entity Forum. A leftover view (such as the forum_ng view) or another module is overriding it. Disable that view at admin/structure/views and clear caches.', array(
+        'description' => t('The <a href="@url">forums</a> path is currently served by !callback instead of the entity_forum_forums view. A leftover view (such as the forum_ng view) or another module is overriding it. Disable that view at admin/structure/views and clear caches.', array(
           '@url' => url('forums'),
-          '%callback' => $owner,
+          '!callback' => is_string($owner) ? check_plain($owner) : $owner,
         )),
         'severity' => REQUIREMENT_WARNING,
       );
@@ -114,7 +131,7 @@ function entity_forum_requirements($phase) {
     }
 
     // Uninstall heads-up. Uninstalling drops every forum table AND deletes each
-    // field on forum content (with its data) irreversibly — see hook_uninstall.
+    // field on forum content (with its data) irreversibly - see hook_uninstall.
     // Backdrop offers no hook to veto or annotate the uninstall page itself, so
     // surface what is at risk here and point the owner at the clean path: delete
     // the forums first (each forum's Delete action removes it and everything
@@ -166,7 +183,7 @@ function entity_forum_requirements($phase) {
  *
  * Seeds the body field on the default topic type. A topic's and a reply's
  * body is the entity_forum_body field rather than a base column, so a forum
- * builder chooses its widget and text format per topic type — this is the
+ * builder chooses its widget and text format per topic type, this is the
  * install-time counterpart of node_add_body_field() on a fresh content type.
  * Every topic type created afterwards seeds its own body in
  * entity_forum_topic_type_form_submit().
@@ -174,7 +191,7 @@ function entity_forum_requirements($phase) {
  * Also seeds the demo "classified" topic type's body, and the starter forums.
  * The classified type, its ad fields and the grid view ship as config (imported
  * before this hook runs); only the body field (code-seeded like the default
- * type's, not shipped as config) and the forum ENTITIES are created here — a
+ * type's, not shipped as config) and the forum ENTITIES are created here, a
  * forum is a table row, not config. The starter forums let a fresh site show
  * off a plain forum and a fielded classified section out of the box, and are
  * removable afterwards from the settings page.
@@ -279,16 +296,16 @@ function _entity_forum_create_starter_forum(array $props, $format) {
  *
  * This includes any fields a SITE added to forum content (attachments, a price,
  * …): they hang off the entity types being removed, so they cannot survive.
- * That destruction is inherent to uninstalling — the guard against doing it
- * unawares is a warning, not a block (see the @todo in CLAUDE.md; core offers
- * no clean way to veto an uninstall).
+ * That destruction is inherent to uninstalling, the guard against doing it
+ * unawares is a warning, not a block (core offers no clean way to veto an
+ * uninstall).
  *
  * The importer owns the forum-attachments FILES on disk, so their cleanup is
  * its concern, not this module's; field data referencing them is removed here,
  * which drops the file usages and lets file GC collect the now-unused files.
  */
 function entity_forum_uninstall() {
-  // 1. Every field instance on the three entity types — the module's body
+  // 1. Every field instance on the three entity types, the module's body
   //    field, site-added fields, and instances on any orphaned bundle (a topic
   //    type whose config is already gone).
   //    Pass FALSE for $field_cleanup, NOT TRUE: core's field_delete_instance()
@@ -305,7 +322,7 @@ function entity_forum_uninstall() {
     }
   }
 
-  // Delete each field that no longer has an instance anywhere — its data table
+  // Delete each field that no longer has an instance anywhere, its data table
   // is dropped by the purge below. A field a site also put on another entity
   // type (a shared field) still has instances, so it is left alone.
   foreach ($field_names as $field_name) {
@@ -319,7 +336,7 @@ function entity_forum_uninstall() {
   field_purge_batch(10000);
 
   // field_purge_batch() can strand an instance's CONFIG (left marked
-  // deleted = 1) when its field is purged before the instance is — and
+  // deleted = 1) when its field is purged before the instance is, and
   // config_install_default_config() SKIPS any config name that already exists,
   // so on a later reinstall the shipped field instances silently fail to
   // re-materialise: the classified demo type would come back with only its body
@@ -503,7 +520,7 @@ function entity_forum_schema() {
         'description' => 'The title of the topic.',
       ),
       // The opening post body is the entity_forum_body field (one instance per
-      // topic type), not a column — a forum builder picks its widget and text
+      // topic type), not a column, a forum builder picks its widget and text
       // format per type through Field UI. See entity_forum_add_body_field().
       'status' => array(
         'type' => 'int',
@@ -839,690 +856,4 @@ function entity_forum_schema() {
   );
 
   return $schema;
-}
-
-/**
- * Add the author_name snapshot column and make author_uid signed.
- *
- * author_uid becomes signed so a deleted member's posts can keep their
- * "last uid" flipped to negative (-uid), making former-member posts
- * trivially queryable (author_uid < 0) and reinstatable via abs(uid).
- */
-function entity_forum_update_1000() {
-  $name_spec = array(
-    'type' => 'varchar',
-    'length' => 60,
-    'not null' => TRUE,
-    'default' => '',
-    'description' => 'Snapshot of the author display name at save time; shown when the account no longer exists.',
-  );
-  $uid_spec = array(
-    'type' => 'int',
-    'not null' => TRUE,
-    'default' => 0,
-    'description' => 'The {users}.uid of the author. Flipped to negative ("last uid") when the account is deleted.',
-  );
-  foreach (array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply') as $table) {
-    if (!db_field_exists($table, 'author_name')) {
-      db_add_field($table, 'author_name', $name_spec);
-    }
-    db_change_field($table, 'author_uid', 'author_uid', $uid_spec);
-  }
-}
-
-/**
- * Adds voice_count and attachment_count to {entity_forum_topic} and
- * populates them for existing topics.
- */
-function entity_forum_update_1001(&$sandbox) {
-  if (!isset($sandbox['progress'])) {
-    if (!db_field_exists('entity_forum_topic', 'voice_count')) {
-      db_add_field('entity_forum_topic', 'voice_count', array(
-        'type' => 'int',
-        'not null' => TRUE,
-        'unsigned' => TRUE,
-        'default' => 1,
-        'description' => 'Denormalized count of distinct participants (topic author plus published repliers) — the bbPress "Voices".',
-      ));
-    }
-    if (!db_field_exists('entity_forum_topic', 'attachment_count')) {
-      db_add_field('entity_forum_topic', 'attachment_count', array(
-        'type' => 'int',
-        'not null' => TRUE,
-        'unsigned' => TRUE,
-        'default' => 0,
-        'description' => 'Denormalized count of {file_usage} attachments on the topic and its published replies.',
-      ));
-    }
-    // Rebuild the schema cache so the stats recalculation (and any entity
-    // save via backdrop_write_record) sees the new columns immediately.
-    backdrop_get_complete_schema(TRUE);
-    $sandbox['progress'] = 0;
-    $sandbox['max'] = (int) db_query('SELECT COUNT(topic_id) FROM {entity_forum_topic}')->fetchField();
-  }
-
-  $topic_ids = db_query_range('SELECT topic_id FROM {entity_forum_topic} ORDER BY topic_id', $sandbox['progress'], 100)->fetchCol();
-  foreach ($topic_ids as $topic_id) {
-    entity_forum_topic_recalculate_stats($topic_id);
-    $sandbox['progress']++;
-  }
-
-  $sandbox['#finished'] = $sandbox['max'] ? min(1, $sandbox['progress'] / $sandbox['max']) : 1;
-  if ($sandbox['#finished'] >= 1) {
-    return t('Added voice and attachment counts; recalculated stats for @count topics.', array('@count' => $sandbox['progress']));
-  }
-}
-
-/**
- * Moves private-forum attachment files into the private:// scheme.
- *
- * Secures existing imported attachments: any file whose forum is private
- * is moved from public:// to private:// so entity_forum_file_download()
- * can gate it. Public-forum files are left in public://. Requires the
- * private file system path to be configured first.
- */
-function entity_forum_update_1002(&$sandbox) {
-  if (!file_stream_wrapper_valid_scheme('private')) {
-    throw new UpdateException('The private file system path is not configured. Set it at admin/config/media/file-system, then run updates again.');
-  }
-
-  if (!isset($sandbox['progress'])) {
-    $sandbox['fids'] = db_query("SELECT DISTINCT fid FROM {file_usage} WHERE module = 'entity_forum' ORDER BY fid")->fetchCol();
-    $sandbox['progress'] = 0;
-    $sandbox['moved'] = 0;
-    $sandbox['max'] = count($sandbox['fids']);
-  }
-
-  $slice = array_slice($sandbox['fids'], $sandbox['progress'], 50);
-  foreach ($slice as $fid) {
-    $file = file_load($fid);
-    if ($file && entity_forum_rescheme_file($file)) {
-      $sandbox['moved']++;
-    }
-    $sandbox['progress']++;
-  }
-
-  $sandbox['#finished'] = $sandbox['max'] ? min(1, $sandbox['progress'] / $sandbox['max']) : 1;
-  if ($sandbox['#finished'] >= 1) {
-    return t('Secured attachments: moved @moved private-forum file(s) to private://, checked @total.', array(
-      '@moved' => $sandbox['moved'],
-      '@total' => $sandbox['max'],
-    ));
-  }
-}
-
-/**
- * Adds the listing (topic list visibility) column to {entity_forum_topic}.
- *
- * Topics can be listed normally, shown only to moderators (admin_only),
- * or hidden from topic lists entirely (unlisted) while staying viewable
- * at their own URL — the foundation for moderation queues and
- * node-attached comment threads. Existing topics default to 'normal'.
- */
-function entity_forum_update_1003() {
-  if (!db_field_exists('entity_forum_topic', 'listing')) {
-    db_add_field('entity_forum_topic', 'listing', array(
-      'type' => 'varchar',
-      'length' => 16,
-      'not null' => TRUE,
-      'default' => 'normal',
-      'description' => 'Topic list visibility: normal (listed), admin_only (moderators only), or unlisted (hidden from lists, e.g. node-attached comment threads).',
-    ), array('indexes' => array('listing' => array('listing'))));
-  }
-  // Rebuild the schema cache so entity saves see the new column at once
-  // (backdrop_write_record silently drops fields missing from the cache).
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Adds the pending (awaiting review) column to topics and replies.
- *
- * Members with the 'review' posting status have their new posts held for
- * moderation: pending topics are hidden via listing = admin_only, pending
- * replies via status = 0 — so the existing visibility machinery covers
- * them and this column only marks what belongs in the moderation queue.
- */
-function entity_forum_update_1004() {
-  $spec = array(
-    'type' => 'int',
-    'size' => 'tiny',
-    'not null' => TRUE,
-    'default' => 0,
-    'description' => 'Awaiting moderator review (1 = in the moderation queue).',
-  );
-  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
-    if (!db_field_exists($table, 'pending')) {
-      db_add_field($table, 'pending', $spec, array('indexes' => array('pending' => array('pending'))));
-    }
-  }
-  // Rebuild the schema cache so entity saves see the new columns at once
-  // (backdrop_write_record silently drops fields missing from the cache).
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Adds the {entity_forum_report} table and the pending_reason columns.
- *
- * Reports let members flag content for moderator attention (a plain
- * table, deliberately not an entity so reports can never leak into
- * lists or statistics). pending_reason records WHY a post was held for
- * review — the member's posting status, or a reason set by a
- * third-party moderation module via hook_entity_forum_post_hold_alter().
- */
-function entity_forum_update_1005() {
-  if (!db_table_exists('entity_forum_report')) {
-    $schema = entity_forum_schema();
-    db_create_table('entity_forum_report', $schema['entity_forum_report']);
-  }
-  $spec = array(
-    'type' => 'varchar',
-    'length' => 64,
-    'not null' => TRUE,
-    'default' => '',
-    'description' => 'Why the post was held for review (e.g. posting_status, or a reason set by a third-party moderation module).',
-  );
-  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
-    if (!db_field_exists($table, 'pending_reason')) {
-      db_add_field($table, 'pending_reason', $spec);
-    }
-  }
-  // Rebuild the schema cache so entity saves see the new columns at once.
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Adds the node_id (attached content) column to {entity_forum_topic}.
- *
- * A topic with node_id set is the discussion thread of that node —
- * rendered below the node as a comments replacement, unlisted in forum
- * topic lists by default. See the "Content discussions" section of the
- * forum settings.
- */
-function entity_forum_update_1006() {
-  if (!db_field_exists('entity_forum_topic', 'node_id')) {
-    db_add_field('entity_forum_topic', 'node_id', array(
-      'type' => 'int',
-      'not null' => TRUE,
-      'unsigned' => TRUE,
-      'default' => 0,
-      'description' => 'The {node}.nid this topic is attached to as its discussion thread (0 = a normal forum topic).',
-    ), array('indexes' => array('node_id' => array('node_id'))));
-  }
-  // Rebuild the schema cache so entity saves see the new column at once.
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Adds the author_close column to {entity_forum_forum}.
- *
- * Forums with author_close enabled let topic authors close and reopen
- * their own topics — the classified-ads "mark as sold" flow.
- */
-function entity_forum_update_1007() {
-  if (!db_field_exists('entity_forum_forum', 'author_close')) {
-    db_add_field('entity_forum_forum', 'author_close', array(
-      'type' => 'int',
-      'size' => 'tiny',
-      'not null' => TRUE,
-      'default' => 0,
-      'description' => 'Whether topic authors may close/reopen their own topics in this forum (classified ads: mark as sold).',
-    ));
-  }
-  // Rebuild the schema cache so entity saves see the new column at once.
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Adds the listed (appear in forum list) column to {entity_forum_forum}.
- *
- * Decouples forum-list appearance from published status: an unlisted
- * forum is hidden from the forums index and sub-forum lists but stays
- * fully usable at its own URL (forum/N) — for forums featured under their
- * own menu link. Existing forums default to listed (1).
- */
-function entity_forum_update_1008() {
-  if (!db_field_exists('entity_forum_forum', 'listed')) {
-    db_add_field('entity_forum_forum', 'listed', array(
-      'type' => 'int',
-      'size' => 'tiny',
-      'not null' => TRUE,
-      'default' => 1,
-      'description' => 'Whether the forum appears in the forums index and sub-forum lists. Unlisted forums stay fully usable at their own URL (forum/N) — for forums featured under their own menu link. Independent of status (published).',
-    ));
-  }
-  // Rebuild the schema cache so entity saves see the new column at once.
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Removes the topic scheduling settings and cron state.
- *
- * Scheduling published topics on a start date and closed/delisted them
- * after an end date, driven by two site-wide date field names. It was
- * removed as policy that does not belong in a general forum module: "show
- * only ads that are currently running" is a Views filter, which each site
- * expresses on its own display without the module mutating content on
- * cron. No schema change — the columns it wrote to (status, closed,
- * listing) are all still used by other features.
- */
-function entity_forum_update_1009() {
-  $config = config('entity_forum.settings');
-  $config->clear('schedule_start_field');
-  $config->clear('schedule_end_field');
-  $config->clear('schedule_duration');
-  $config->save();
-  state_del('entity_forum_schedule_last_run');
-}
-
-/**
- * Adds the topic type (bundle) column and puts existing topics on it.
- *
- * Topics were a single-bundle entity type: Field API used the entity type
- * name as the bundle name, so every field instance landed on every topic.
- * The new 'type' column is the bundle key, letting a site define its own
- * topic types and attach fields per type.
- *
- * The default type is deliberately named 'entity_forum_topic' — the bundle
- * name field instances already use — so this update is a column backfill
- * only: no field_config_instance rewrite and no config churn. The column is
- * NOT NULL with that default, because entity_extract_ids() throws
- * EntityMalformedException on a topic whose bundle property is empty.
- */
-function entity_forum_update_1010() {
-  if (!db_field_exists('entity_forum_topic', 'type')) {
-    db_add_field('entity_forum_topic', 'type', array(
-      'type' => 'varchar',
-      'length' => 32,
-      'not null' => TRUE,
-      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
-      'description' => 'The topic type (bundle): the machine name of an entity_forum topic type. Never empty — entity_extract_ids() throws on a missing bundle.',
-    ), array(
-      'indexes' => array(
-        'type' => array('type'),
-      ),
-    ));
-  }
-
-  // db_add_field() backfills every existing row with the column default, so
-  // this normally matches nothing. It is kept as a guard for a re-run, or a
-  // row that arrived without a type from somewhere else.
-  db_update('entity_forum_topic')
-    ->fields(array('type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT))
-    ->condition(db_or()
-      ->condition('type', '')
-      ->isNull('type'))
-    ->execute();
-
-  // Rebuild the schema cache so entity saves see the new column at once:
-  // backdrop_write_record() silently drops fields missing from the cache.
-  backdrop_get_complete_schema(TRUE);
-
-  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_topic} WHERE type = :type', array(
-    ':type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
-  ))->fetchField();
-
-  return t('Added the topic type column; @count topic(s) are on the %type type.', array(
-    '@count' => $count,
-    '%type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
-  ));
-}
-
-/**
- * Creates the default topic type config.
- *
- * Topic types are config (entity_forum.type.*). A module's default config is
- * only copied into active config at install time, so a site that already had
- * entity_forum installed needs the default type written here — otherwise it
- * would run on the synthesised fallback in entity_forum_topic_types() and the
- * type would not be editable or exportable.
- */
-function entity_forum_update_1011() {
-  $config = config('entity_forum.type.' . ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
-  if ($config->isNew()) {
-    $config->set('type', ENTITY_FORUM_TOPIC_TYPE_DEFAULT);
-    $config->set('label', 'Topic');
-    $config->set('description', 'The standard discussion topic.');
-    $config->save();
-  }
-  entity_forum_topic_types_reset();
-}
-
-/**
- * Adds the per-forum allowed topic types column.
- *
- * A forum may restrict which topic types can be posted in it — the generic,
- * UI-driven replacement for scoping fields to specific forums. Existing
- * forums are left with no restriction (NULL), which is identical in effect
- * today because a site upgrading has exactly one topic type, and keeps the
- * "untick everything = allow everything" convention the module uses already.
- */
-function entity_forum_update_1012() {
-  if (!db_field_exists('entity_forum_forum', 'topic_types')) {
-    db_add_field('entity_forum_forum', 'topic_types', array(
-      'type' => 'text',
-      'size' => 'medium',
-      'not null' => FALSE,
-      'serialize' => TRUE,
-      'description' => 'Serialized array of the topic type machine names that may be posted in this forum. An empty array or NULL means every type is allowed.',
-    ));
-  }
-  // Rebuild the schema cache so entity saves see the new column at once:
-  // backdrop_write_record() silently drops fields missing from the cache.
-  backdrop_get_complete_schema(TRUE);
-}
-
-/**
- * Removes the htmx reply modal settings.
- *
- * The modal is gone: two ways to post a reply was a UX split, and the
- * fragment could not carry field widgets (managed_file needs core ajax.js,
- * which is not wired into swapped fragments), so a site's reply fields were
- * silently missing from the quick reply. There is now one reply form, at
- * topic/N/reply, which always carries the reply type's fields.
- */
-function entity_forum_update_1013() {
-  $config = config('entity_forum.settings');
-  $config->clear('htmx_cdn');
-  $config->clear('htmx_cdn_url');
-  $config->save();
-}
-
-/**
- * Adds the reply type (bundle) column and derives it from each topic.
- *
- * Replies are bundleable so a site can give a kind of reply its own fields —
- * an "Offer amount" on replies to a classified ad, meaningless on a normal
- * reply. The type is DERIVED from the reply's topic rather than chosen, and
- * denormalized onto the row exactly like forum_id, so no chooser and no
- * second type system are needed: a reply in a Classified topic is a
- * Classified reply.
- */
-function entity_forum_update_1014() {
-  if (!db_field_exists('entity_forum_reply', 'type')) {
-    db_add_field('entity_forum_reply', 'type', array(
-      'type' => 'varchar',
-      'length' => 32,
-      'not null' => TRUE,
-      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
-      'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id.',
-    ), array(
-      'indexes' => array(
-        'type' => array('type'),
-      ),
-    ));
-  }
-
-  // Derive every existing reply's type from its topic in one statement.
-  // The column default already covers the common case (one topic type), but
-  // a site that added types before this update needs the real mapping.
-  db_query('UPDATE {entity_forum_reply} r INNER JOIN {entity_forum_topic} t ON t.topic_id = r.topic_id SET r.type = t.type');
-
-  // Orphan replies (topic already gone) keep the default rather than an
-  // empty bundle, which entity_extract_ids() would throw on.
-  db_update('entity_forum_reply')
-    ->fields(array('type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT))
-    ->condition(db_or()->condition('type', '')->isNull('type'))
-    ->execute();
-
-  backdrop_get_complete_schema(TRUE);
-
-  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_reply}')->fetchField();
-  return t('Added the reply type column; @count reply/replies typed from their topic.', array('@count' => $count));
-}
-
-/**
- * Replaces the per-forum allowed topic types list with a single topic type.
- *
- * The type is now a property of the FORUM, set when the forum is created, so
- * posting never asks which kind of topic this is: a classifieds forum holds
- * classified ads, and a forum wanting a different kind of topic gets a
- * sub-forum. This retires the allowed-types list, the post-time chooser page
- * and the type-in-URL route.
- *
- * Forums keep whichever type they already allowed (the first, if several); a
- * forum with no restriction takes the default type — which is what it
- * effectively had anyway.
- */
-function entity_forum_update_1015() {
-  if (!db_field_exists('entity_forum_forum', 'topic_type')) {
-    db_add_field('entity_forum_forum', 'topic_type', array(
-      'type' => 'varchar',
-      'length' => 32,
-      'not null' => TRUE,
-      'default' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
-      'description' => 'The topic type every topic posted in this forum takes.',
-    ));
-  }
-
-  // Carry over the old serialized allow-list: take the first type that still
-  // exists, else leave the default.
-  if (db_field_exists('entity_forum_forum', 'topic_types')) {
-    $known = array_keys(entity_forum_topic_types());
-    foreach (db_query('SELECT forum_id, topic_types FROM {entity_forum_forum}') as $row) {
-      $allowed = $row->topic_types ? @unserialize($row->topic_types) : array();
-      if (!is_array($allowed)) {
-        continue;
-      }
-      $allowed = array_values(array_intersect(array_filter($allowed), $known));
-      if ($allowed) {
-        db_update('entity_forum_forum')
-          ->fields(array('topic_type' => $allowed[0]))
-          ->condition('forum_id', $row->forum_id)
-          ->execute();
-      }
-    }
-    db_drop_field('entity_forum_forum', 'topic_types');
-  }
-
-  backdrop_get_complete_schema(TRUE);
-  return t('Forums now take a single topic type, set on the forum.');
-}
-
-/**
- * Gives forum descriptions a text format.
- *
- * The description was plain text rendered with check_plain(), so a forum
- * could not carry so much as a link. It is now an ordinary formatted text
- * value like topic and reply bodies, editable with whatever editor the
- * chosen format uses.
- *
- * Existing descriptions are assigned the site's default format. That is the
- * safe direction: they were entered as plain text and were escaped on
- * output, so any stray markup in them was never live and must not become
- * live now — the default format's filters (escaping/limited HTML) keep it
- * inert unless a site deliberately re-saves with a richer format.
- */
-function entity_forum_update_1016() {
-  if (!db_field_exists('entity_forum_forum', 'description_format')) {
-    db_add_field('entity_forum_forum', 'description_format', array(
-      'type' => 'varchar',
-      'length' => 255,
-      'not null' => FALSE,
-      'description' => 'Text format machine name for the description.',
-    ));
-  }
-  $default_format = filter_default_format();
-  $updated = db_update('entity_forum_forum')
-    ->fields(array('description_format' => $default_format))
-    ->isNull('description_format')
-    ->condition('description', '', '<>')
-    ->execute();
-  backdrop_get_complete_schema(TRUE);
-  return t('Forum descriptions now use a text format; @count existing description(s) set to %format.', array(
-    '@count' => $updated,
-    '%format' => $default_format,
-  ));
-}
-
-/**
- * Add the per-forum topic list view column.
- *
- * Empty on every existing forum, which means "the shipped default" — so the
- * upgrade changes nothing until a site chooses otherwise.
- */
-function entity_forum_update_1017() {
-  if (!db_field_exists('entity_forum_forum', 'topic_view')) {
-    db_add_field('entity_forum_forum', 'topic_view', array(
-      'type' => 'varchar',
-      'length' => 128,
-      'not null' => TRUE,
-      'default' => '',
-      'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default.',
-    ));
-  }
-  // backdrop_write_record() silently drops fields missing from the cached
-  // schema, so the new column would never be saved without this.
-  backdrop_get_complete_schema(TRUE);
-  return t('Forums can now choose the view display that renders their topic list.');
-}
-
-/**
- * Secure field-attached files that private forums' posts already use.
- *
- * The privacy gate used to resolve a file's forum only through {file_usage}
- * rows this module wrote itself (module 'entity_forum'). Files arriving
- * through a file or image field are recorded by core as module 'file', so the
- * gate abstained on them and they stayed in public:// — served directly by the
- * web server, forum privacy never consulted. Any site that attached a file
- * field to a topic or reply type has been publishing its private forums'
- * uploads by direct URL.
- *
- * The gate is now keyed on the usage's type rather than its module, so this
- * pass only has to move the files it previously ignored.
- *
- * FIELD files only (module 'file'): a file referenced from inside post content
- * has its URL baked into the body text and must never be moved — see
- * entity_forum_rescheme_post_files().
- */
-function entity_forum_update_1018() {
-  $fids = db_query("SELECT DISTINCT fid FROM {file_usage} WHERE module = 'file' AND type IN ('entity_forum_topic', 'entity_forum_reply')")->fetchCol();
-  $moved = 0;
-  foreach ($fids as $fid) {
-    $file = file_load($fid);
-    if ($file && entity_forum_rescheme_file($file)) {
-      $moved++;
-    }
-  }
-  if (!file_stream_wrapper_valid_scheme('private')) {
-    return t('No private file system is configured, so nothing could be secured. Configure one at admin/config/media/file-system and run this update again — until then, private forums\' attachments remain readable by direct URL.');
-  }
-  return t('@count file(s) belonging to private forums\' posts moved into the private file system.', array('@count' => $moved));
-}
-
-/**
- * Move pre-bundle reply field instances onto the default topic type.
- *
- * Replies became bundleable in schema 1012, taking their bundle from their
- * TOPIC — so a reply's bundle is a topic type name. Topics needed no migration
- * because the default type is deliberately named after the entity type
- * ('entity_forum_topic'), so their existing instances already sat on the right
- * key. Replies had no such luck: their pre-bundle instances were keyed to
- * 'entity_forum_reply' (the entity type name), which is not a topic type and
- * therefore not a bundle any reply has.
- *
- * The effect was silent and total — a reply field configured before 1012 still
- * appeared in Field UI but applied to no reply at all: no widget on the form,
- * nothing rendered, nothing saved. Nothing errored, which is why it went
- * unnoticed.
- *
- * field_attach_rename_bundle() moves the instance config and any stored field
- * data together.
- */
-function entity_forum_update_1019() {
-  $legacy = field_info_instances('entity_forum_reply', 'entity_forum_reply');
-  if (!$legacy) {
-    return t('No pre-bundle reply field instances found; nothing to move.');
-  }
-
-  $target = ENTITY_FORUM_TOPIC_TYPE_DEFAULT;
-  // A field already instanced on the target bundle would be overwritten by the
-  // rename. Refuse rather than silently destroy the newer configuration.
-  $existing = field_info_instances('entity_forum_reply', $target);
-  $collisions = array_intersect(array_keys($legacy), array_keys($existing));
-  if ($collisions) {
-    throw new UpdateException(t('Cannot move the pre-bundle reply field(s) %fields onto the %target reply bundle: a field of the same name is already configured there. Resolve the duplicate at admin/structure/entity-forum/topic-types before running this update.', array(
-      '%fields' => implode(', ', $collisions),
-      '%target' => $target,
-    )));
-  }
-
-  field_attach_rename_bundle('entity_forum_reply', 'entity_forum_reply', $target);
-  field_info_cache_clear();
-  return t('Moved @count reply field instance(s) (@fields) onto the %target reply bundle, where replies can actually use them.', array(
-    '@count' => count($legacy),
-    '@fields' => implode(', ', array_keys($legacy)),
-    '%target' => $target,
-  ));
-}
-
-/**
- * Rename the migrate map's wp_id column to source_id.
- *
- * The map was written for the one importer that existed, so it named its key
- * column after that importer's source system: wp_id, "the legacy
- * {wp_posts}.ID". Converters for Backdrop's own forum, forum_ng and comments
- * are coming, and a general forum module has no business with WordPress in its
- * schema. Nothing but the name changes: the key stays (entity_type, source_id).
- *
- * Deliberately NOT a 'source' column keyed alongside it. A site migrates FROM
- * one forum system, so two sources in one map is a fringe case — and the one
- * case that is not fringe (an importer reading two ID spaces, e.g. bbPress
- * replies from {wp_posts} and page comments from {wp_comments}, both landing on
- * entity_forum_reply) shares a source anyway, so a source column would not
- * separate them. entity_type already does: it is a "kind", which is why 'file'
- * and 'user_avatar' exist. A converter reading a second ID space gives it its
- * own marker.
- */
-function entity_forum_update_1020() {
-  if (db_field_exists('entity_forum_migrate_map', 'source_id')) {
-    return t('The migrate map key column is already named source_id; nothing to do.');
-  }
-
-  // The renamed column is part of the primary key, so the key comes off before
-  // the column changes and goes back on after.
-  db_drop_primary_key('entity_forum_migrate_map');
-  db_change_field('entity_forum_migrate_map', 'wp_id', 'source_id', array(
-    'type' => 'int',
-    'not null' => TRUE,
-    'unsigned' => TRUE,
-    'description' => "The record's ID in the source system.",
-  ));
-  db_add_primary_key('entity_forum_migrate_map', array('entity_type', 'source_id'));
-
-  // db_merge() reads the cached schema.
-  backdrop_get_complete_schema(TRUE);
-
-  $count = (int) db_query('SELECT COUNT(*) FROM {entity_forum_migrate_map}')->fetchField();
-  return t('Migrate map: wp_id renamed to source_id (@count row(s) unaffected).', array(
-    '@count' => $count,
-  ));
-}
-
-/**
- * Normalize content-discussion placements to the {forum, scope} format.
- *
- * Placements gained a per-node "scope" (auto vs item). Old placements stored
- * a bare forum ID; convert each to array('forum' => id, 'scope' => 'auto') so
- * existing content types keep their current every-item behaviour.
- */
-function entity_forum_update_1021() {
-  $config = config('entity_forum.settings');
-  $map = $config->get('node_types');
-  if (!is_array($map) || !$map) {
-    return t('No content-discussion placements to convert.');
-  }
-
-  $converted = 0;
-  foreach ($map as $type => $value) {
-    if (!is_array($value)) {
-      $map[$type] = array('forum' => (int) $value, 'scope' => 'auto');
-      $converted++;
-    }
-  }
-  $config->set('node_types', $map);
-  $config->save();
-
-  return t('Converted @count content-discussion placement(s) to the scoped format.', array(
-    '@count' => $converted,
-  ));
 }
