@@ -9,12 +9,11 @@
  * formatted description.
  *
  * The forums index shows the forum name and its description as one unit, and
- * the Forum hierarchy style indents a single field's value as a whole — so the
+ * the Forum hierarchy style indents a single field's value as a whole, so the
  * title, the private marker and the description have to travel together in one
  * field, or a nested forum's description would sit un-indented at the cell's
- * left edge while its title was pushed right. This reproduces exactly what the
- * old entity_forum_forums_page() cell rendered, minus the padding-left the
- * style now supplies.
+ * left edge while its title was pushed right. The style supplies the
+ * padding-left indent around this cell.
  *
  * Topics and Last activity stay separate, editable Views columns; only the
  * identity cell is composite, because only it needs to indent as a unit.

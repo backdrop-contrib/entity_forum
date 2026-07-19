@@ -50,7 +50,7 @@ class entity_forum_handler_field_value_label extends views_handler_field {
     $labels = $this->labelMap();
     if (isset($labels[$value])) {
       // Labels come from config/code, not user input, but t()/config strings
-      // may legitimately contain markup callers expect rendered — none here
+      // may legitimately contain markup callers expect rendered, none here
       // do, so sanitize for safety.
       return check_plain($labels[$value]);
     }

@@ -4,17 +4,16 @@
  * Hooks provided by the Entity Forum module.
  *
  * The frontend forms are ordinary Form API forms, so they need no custom
- * hooks — alter them with hook_form_FORM_ID_alter():
+ * hooks, alter them with hook_form_FORM_ID_alter():
  * - entity_forum_topic_frontend_form (the "New topic" form)
  * - entity_forum_reply_frontend_form (the reply form on topic pages)
  * - entity_forum_posting_name_form (the account Forum tab)
  *
  * The forums index ("forums") and the topic list on forum pages are both view
- * displays — the index is the shipped entity_forum_forums view (Forum hierarchy
+ * displays, the index is the shipped entity_forum_forums view (Forum hierarchy
  * style), and the per-forum topic list is chosen on the forum form, defaulting
  * to entity_forum_topics. Alter either in the Views UI (admin/structure/views)
- * or with the Views hooks; the old hook_entity_forum_forums_page_alter() is gone
- * with the code callback it belonged to.
+ * or with the Views hooks.
  */
 
 /**
@@ -23,7 +22,7 @@
  * @param array $build
  *   The page render array: 'description', 'subforums', 'new_topic'
  *   (the Post new topic link) and 'topics' (the topic list view display this
- *   forum uses — entity_forum_forum_topic_list_view() resolves which).
+ *   forum uses, entity_forum_forum_topic_list_view() resolves which).
  * @param EntityForumForum $forum
  *   The forum being viewed.
  */
@@ -60,11 +59,11 @@ function hook_entity_forum_topic_page_alter(&$build, $topic) {
  * pending_reason column, shown to moderators as the "Held by" value.
  *
  * Entity Forum's own rule (the member's 'review' posting status) runs
- * first; this alter can add rules — an AI moderation verdict, a
- * probation period for new members, per-forum rules — or override the
+ * first; this alter can add rules, an AI moderation verdict, a
+ * probation period for new members, per-forum rules, or override the
  * built-in decision. Keep the check fast: it runs synchronously in the
  * posting request. For slow analysis (e.g. a remote AI service), hold
- * the post here and approve it later from your own code — publishing a
+ * the post here and approve it later from your own code, publishing a
  * held post through a normal entity save releases the hold
  * automatically (the pending flag and reason are cleared in presave).
  *

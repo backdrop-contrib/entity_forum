@@ -7,19 +7,18 @@
 /**
  * Forum hierarchy style plugin.
  *
- * Views has no tree style, which is why the front-end forums index and the
- * admin forum overview each hand-roll the same depth-first walk in PHP. This
- * style adds that one missing piece so either list can become a View: it takes
- * the flat result set on the entity_forum_forum base table, re-orders it
- * depth-first (each forum immediately followed by its descendants), and indents
- * one chosen column by nesting depth — the same visual the two callbacks
- * produce with padding-left.
+ * Views has no tree style of its own, so the forums index and the admin forum
+ * overview could not otherwise show the parent/child hierarchy as Views. This
+ * style supplies it: it takes the flat result set on the entity_forum_forum
+ * base table, re-orders it depth-first (each forum immediately followed by its
+ * descendants), and indents one chosen column by nesting depth with a
+ * padding-left span.
  *
  * It extends the core Table style rather than reinventing it, so a site builder
  * keeps every table feature (which fields are columns, headers, per-column
  * classes, alignment, responsive) and this class only contributes the ordering
  * and the indent. Sibling order comes from the view's own Sort criteria (e.g.
- * weight, then title) — the reorder never sorts, it only nests.
+ * weight, then title), the reorder never sorts, it only nests.
  *
  * @see entity_forum_views_plugins()
  * @ingroup views_style_plugins
@@ -79,7 +78,7 @@ class entity_forum_plugin_style_forum_hierarchy extends views_plugin_style_table
       '#title' => t('Indent this column'),
       '#options' => $field_names,
       '#default_value' => $this->options['indent_field'],
-      '#description' => t('The column indented to show each forum beneath its parent — usually the forum title. Sibling order follows the display\'s Sort criteria (e.g. weight, then title); do not enable click-sorting on a hierarchy, as it fights the nesting.'),
+      '#description' => t('The column indented to show each forum beneath its parent - usually the forum title. Sibling order follows the display\'s Sort criteria (e.g. weight, then title); do not enable click-sorting on a hierarchy, as it fights the nesting.'),
       '#weight' => -6,
     );
     $form['indent_width'] = array(
@@ -108,7 +107,7 @@ class entity_forum_plugin_style_forum_hierarchy extends views_plugin_style_table
   }
 
   /**
-   * Keeps the view's own sort — a hierarchy is ordered by nesting, not clicks.
+   * Keeps the view's own sort, a hierarchy is ordered by nesting, not clicks.
    *
    * Returning TRUE tells the builder NOT to let click-sorting replace the
    * configured sorts, so sibling order (weight, title) is stable.
@@ -197,7 +196,7 @@ class entity_forum_plugin_style_forum_hierarchy extends views_plugin_style_table
    * @param array $depths
    *   depth keyed by the row's index in $ordered, built by reference.
    * @param array $emitted
-   *   forum_id => TRUE for rows already emitted, by reference — breaks cycles.
+   *   forum_id => TRUE for rows already emitted, by reference, breaks cycles.
    */
   protected function walk_tree(array $children, $parent_id, $depth, array &$ordered, array &$depths, array &$emitted) {
     if (empty($children[$parent_id])) {

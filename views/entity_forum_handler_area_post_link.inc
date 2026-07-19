@@ -10,12 +10,12 @@
  *
  * The point of this handler is the access check. Views' own "Global: Text
  * area" has no idea who is looking, and a display's access setting gates the
- * WHOLE view, not one region — so a hand-written link in a text area would
+ * WHOLE view, not one region, so a hand-written link in a text area would
  * show to anonymous visitors and to members whose posting is suspended.
  *
  * This defers entirely to entity_forum_topic_create_access(), so the link
- * inherits every rule already in force — the create permission, the forum
- * being published and viewable, and the member's posting status — and keeps
+ * inherits every rule already in force, the create permission, the forum
+ * being published and viewable, and the member's posting status, and keeps
  * inheriting them if those rules change. Nothing here re-states them.
  *
  * The forum comes from the view's forum_id argument, which is what makes the
@@ -53,7 +53,7 @@ class entity_forum_handler_area_post_link extends views_handler_area {
       '#description' => t('When unticked, visitors who cannot post simply see nothing here.'),
     );
     $form['help'] = array(
-      '#markup' => '<div class="description">' . t('Shown only to viewers who may actually post in this forum — the same check the forum page itself uses. The forum is taken from this display\'s forum ID argument, so a copy of this view pointed at another forum needs no changes.') . '</div>',
+      '#markup' => '<div class="description">' . t('Shown only to viewers who may actually post in this forum - the same check the forum page itself uses. The forum is taken from this display\'s forum ID argument, so a copy of this view pointed at another forum needs no changes.') . '</div>',
     );
   }
 
@@ -97,7 +97,7 @@ class entity_forum_handler_area_post_link extends views_handler_area {
    * Loads the forum this display is showing.
    *
    * Reads the view's argument rather than the current path, so the handler
-   * works wherever the view is rendered — embedded in the forum page, a page
+   * works wherever the view is rendered, embedded in the forum page, a page
    * display, or a preview in the Views UI.
    *
    * Matched on the argument's FIELD (forum_id) rather than its key, because
@@ -106,7 +106,7 @@ class entity_forum_handler_area_post_link extends views_handler_area {
    * the view has executed and an area can be asked to render before that.
    *
    * @return EntityForumForum|false
-   *   The forum, or FALSE when no forum argument is available — in which
+   *   The forum, or FALSE when no forum argument is available, in which
    *   case there is no single forum to post in and the area renders nothing.
    */
   protected function get_forum() {

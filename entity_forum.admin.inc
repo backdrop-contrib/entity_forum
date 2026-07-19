@@ -9,7 +9,7 @@
  * Returns forum titles keyed by forum_id, for select options.
  *
  * When excluding a forum (the one being edited), its whole descendant
- * sub-tree is excluded too — re-parenting a forum under one of its own
+ * sub-tree is excluded too, re-parenting a forum under one of its own
  * children would create a cycle.
  *
  * @param int|null $exclude_id
@@ -87,13 +87,13 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['listed'] = array(
     '#type' => 'checkbox',
     '#title' => t('Appear in forum list'),
-    '#description' => t('When unticked, the forum is hidden from the forums index and sub-forum lists but stays fully usable at its own URL — for a forum you feature under its own menu link. Independent of Published.'),
+    '#description' => t('When unticked, the forum is hidden from the forums index and sub-forum lists but stays fully usable at its own URL - for a forum you feature under its own menu link. Independent of Published.'),
     '#default_value' => !empty($forum->listed),
   );
   $form['author_close'] = array(
     '#type' => 'checkbox',
     '#title' => t('Authors may close and reopen their own topics'),
-    '#description' => t('Adds a Close/Reopen link to a topic for its author — so, for example, a member can mark their own support question resolved. Applies to this forum only, not its sub-forums.'),
+    '#description' => t('Adds a Close/Reopen link to a topic for its author - so, for example, a member can mark their own support question resolved. Applies to this forum only, not its sub-forums.'),
     '#default_value' => !empty($forum->author_close),
   );
 
@@ -106,12 +106,12 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#title' => t('Topic type'),
     '#options' => $topic_type_options,
     '#default_value' => $current_type ? $current_type->type : ENTITY_FORUM_FORUM_TOPIC_TYPE_NONE,
-    '#description' => t('The kind of topic posted in this forum — members are never asked, they just post. A type carries its own fields, so a support forum can require a product-version field while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. Choose <em>None</em> for a forum that only groups sub-forums, like a "Support" heading above Installation and Usage: nobody can post in it. Applies to this forum only, not its sub-forums.', array(
+    '#description' => t('The kind of topic posted in this forum - members are never asked, they just post. A type carries its own fields, so a support forum can require a product-version field while an ordinary forum does not. Add types at <a href="@types">the topic types page</a>. Choose <em>None</em> for a forum that only groups sub-forums, like a "Support" heading above Installation and Usage: nobody can post in it. Applies to this forum only, not its sub-forums.', array(
       '@types' => url('admin/structure/entity-forum/topic-types'),
     )),
   );
   if (!$forum->isNew() && entity_forum_forum_topic_count($forum->id()) > 0) {
-    $form['topic_type']['#description'] .= ' <strong>' . t('Changing this does NOT retype the topics already posted here — they keep the type they were created with.') . '</strong>';
+    $form['topic_type']['#description'] .= ' <strong>' . t('Changing this does NOT retype the topics already posted here - they keep the type they were created with.') . '</strong>';
   }
 
   $view_options = entity_forum_topic_list_view_options();
@@ -120,7 +120,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#title' => t('Topic list view'),
     '#options' => array('' => t('- Default -')) + $view_options,
     '#default_value' => isset($view_options[$forum->topic_view]) ? $forum->topic_view : '',
-    '#description' => t('The view display that renders this forum\'s list of topics. Copy the shipped topics view at <a href="@views">the views page</a> and amend it to give a forum its own list — a thumbnail grid for a photo-gallery forum, say, while the others keep the standard topic table. Only displays built on topics and taking a forum ID argument are offered, since the forum is passed to the display as that argument.', array(
+    '#description' => t('The view display that renders this forum\'s list of topics. Copy the shipped topics view at <a href="@views">the views page</a> and amend it to give a forum its own list - a thumbnail grid for a photo-gallery forum, say, while the others keep the standard topic table. Only displays built on topics and taking a forum ID argument are offered, since the forum is passed to the display as that argument.', array(
       '@views' => url('admin/structure/views'),
     )),
     // A container forum renders no topic list, so the choice is meaningless.
@@ -133,7 +133,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   // Say so rather than silently showing "Default": the list this forum has
   // been rendering is not the one it will render after the next save.
   if ($forum->topic_view !== '' && !isset($view_options[$forum->topic_view])) {
-    $form['topic_view']['#description'] .= ' <strong>' . t('This forum was set to %view, which no longer exists — it is falling back to the default.', array(
+    $form['topic_view']['#description'] .= ' <strong>' . t('This forum was set to %view, which no longer exists - it is falling back to the default.', array(
       '%view' => $forum->topic_view,
     )) . '</strong>';
   }
@@ -157,7 +157,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
  * Validation for entity_forum_forum_form(): container rule + attached fields.
  *
  * A forum cannot become a container while it still holds topics: they would
- * be stranded — still readable, but with nothing listing them and no way to
+ * be stranded, still readable, but with nothing listing them and no way to
  * add to the discussion. Same principle as refusing to delete a topic type
  * that is still in use.
  */
@@ -225,7 +225,7 @@ function entity_forum_forum_delete_form($form, &$form_state, $forum) {
   $counts = _entity_forum_forum_cascade_counts($forum->id());
   $form_state['cascade'] = $counts;
 
-  // An empty leaf forum: a plain one-shot delete, exactly as before.
+  // An empty leaf forum: a plain one-shot delete.
   if (_entity_forum_forum_cascade_is_empty($counts)) {
     return confirm_form(
       $form,
@@ -249,7 +249,7 @@ function entity_forum_forum_delete_form($form, &$form_state, $forum) {
   if ($counts['reply_count']) {
     $items[] = format_plural($counts['reply_count'], '1 reply', '@count replies');
   }
-  $description = t('This permanently deletes %title and everything inside it — !list — including any file attachments on those posts. This cannot be undone.', array(
+  $description = t('This permanently deletes %title and everything inside it - !list - including any file attachments on those posts. This cannot be undone.', array(
     '%title' => $forum->title,
     '!list' => implode(', ', $items),
   ));
@@ -295,7 +295,7 @@ function entity_forum_forum_delete_form_validate($form, &$form_state) {
  *
  * Empty forum: delete it directly. Non-empty forum: run a batch that deletes
  * the sub-tree's topics in chunks (each cascading to its replies, reports and
- * file usages) and then the now-empty forums — batched because a large forum
+ * file usages) and then the now-empty forums, batched because a large forum
  * holds thousands of posts.
  */
 function entity_forum_forum_delete_form_submit($form, &$form_state) {
@@ -367,7 +367,7 @@ function _entity_forum_forum_cascade_is_empty(array $counts) {
  *
  * Re-entrant: each pass deletes a chunk of topics (each topic delete cascades
  * to its replies, reports and file usages through the entity layer), and the
- * final pass — once no topics remain — deletes the now-empty forums.
+ * final pass, once no topics remain, deletes the now-empty forums.
  *
  * @param array $forum_ids
  *   The forum plus every descendant forum ID.
@@ -401,7 +401,7 @@ function entity_forum_forum_cascade_delete_batch_op($forum_ids, $title, &$contex
     return;
   }
 
-  // No topics left in the sub-tree — remove the forums and finish.
+  // No topics left in the sub-tree, remove the forums and finish.
   entity_forum_forum_delete_forums($forum_ids);
   $context['finished'] = 1;
 }
@@ -418,7 +418,7 @@ function entity_forum_forum_cascade_delete_finished($success, $results, $operati
     )));
   }
   else {
-    backdrop_set_message(t('The forum deletion did not finish. Some content may remain — you can run the delete again to clear it.'), 'error');
+    backdrop_set_message(t('The forum deletion did not finish. Some content may remain - you can run the delete again to clear it.'), 'error');
   }
 }
 
@@ -431,7 +431,7 @@ function entity_forum_forum_cascade_delete_finished($success, $results, $operati
 function entity_forum_topic_form($form, &$form_state, $topic = NULL, $topic_type = NULL) {
   if (!isset($topic)) {
     // The type is the bundle, so it must be set before field_attach_form()
-    // decides which widgets this form gets — hence it arrives in the URL
+    // decides which widgets this form gets, hence it arrives in the URL
     // rather than as a select (the node/add/TYPE pattern).
     $topic = entity_create('entity_forum_topic', isset($topic_type)
       ? array('type' => $topic_type->type)
@@ -494,7 +494,7 @@ function entity_forum_topic_form($form, &$form_state, $topic = NULL, $topic_type
     '#title' => t('Topic list visibility'),
     '#options' => entity_forum_topic_listing_options(),
     '#default_value' => $topic->listing,
-    '#description' => t('"Only to moderators" holds the topic for moderation — the topic page itself also becomes moderator-only. "Not shown" keeps the topic off forum lists but leaves its page viewable (used for e.g. comment threads attached elsewhere).'),
+    '#description' => t('"Only to moderators" holds the topic for moderation - the topic page itself also becomes moderator-only. "Not shown" keeps the topic off forum lists but leaves its page viewable (used for e.g. comment threads attached elsewhere).'),
   );
   $form['status'] = array(
     '#type' => 'checkbox',
@@ -587,7 +587,7 @@ function entity_forum_topic_form_validate($form, &$form_state) {
           ':self' => (int) ($form_state['topic']->id() ? $form_state['topic']->id() : 0),
         ))->fetchField();
         if ($existing) {
-          form_set_error('node_link', t('Topic @id is already attached to that content — a node has one discussion thread.', array('@id' => $existing)));
+          form_set_error('node_link', t('Topic @id is already attached to that content - a node has one discussion thread.', array('@id' => $existing)));
         }
       }
     }
@@ -820,7 +820,7 @@ function entity_forum_settings_form($form, &$form_state) {
 
   // Starter forums: the demo forums seeded at install (General Discussion, a
   // Classified Ads container and its Items for Sale child). Offered for removal
-  // only while at least one still exists — a site that wants a clean slate can
+  // only while at least one still exists, a site that wants a clean slate can
   // clear them out without touching the classified type/fields/view, which
   // stay as reusable building blocks.
   $starter_ids = entity_forum_starter_forum_ids();
@@ -835,7 +835,7 @@ function entity_forum_settings_form($form, &$form_state) {
     $form['starter'] = array(
       '#type' => 'fieldset',
       '#title' => t('Starter forums'),
-      '#description' => t('The example forums installed with the module: !list. They demonstrate a plain forum and a fielded classified section. Remove them once you have your own forums set up — the classified topic type, its fields and the ad grid view are left in place for you to reuse.', array(
+      '#description' => t('The example forums installed with the module: !list. They demonstrate a plain forum and a fielded classified section. Remove them once you have your own forums set up - the classified topic type, its fields and the ad grid view are left in place for you to reuse.', array(
         '!list' => theme('item_list', array('items' => $titles)),
       )),
     );
@@ -886,7 +886,7 @@ function entity_forum_starter_forum_ids() {
  *
  * Deletes only the forums seeded at install and still empty. A forum a site
  * has actually used (it holds topics, or has grown its own sub-forums) is kept
- * and reported, rather than taking members' content down with the demo — the
+ * and reported, rather than taking members' content down with the demo, the
  * same protection as the ordinary forum delete form, applied per forum.
  */
 function entity_forum_remove_starter_forums_form($form, &$form_state) {
@@ -944,7 +944,7 @@ function entity_forum_remove_starter_forums_form_submit($form, &$form_state) {
     )));
   }
   if ($kept) {
-    backdrop_set_message(t('Kept !list — still in use (topics posted, or sub-forums added). Empty them first if you want them gone.', array(
+    backdrop_set_message(t('Kept !list - still in use (topics posted, or sub-forums added). Empty them first if you want them gone.', array(
       '!list' => implode(', ', $kept),
     )), 'warning');
   }
@@ -956,7 +956,7 @@ function entity_forum_remove_starter_forums_form_submit($form, &$form_state) {
  *
  * Persists the default picture with managed-file bookkeeping: a new
  * upload is made permanent and gets a usage record; the replaced upload
- * is released and deleted (the module's shipped SVG is untouched — it is
+ * is released and deleted (the module's shipped SVG is untouched, it is
  * used whenever no file is configured).
  */
 function entity_forum_settings_form_submit($form, &$form_state) {
@@ -1053,7 +1053,7 @@ function entity_forum_node_discussion_form($form, &$form_state, $type = NULL) {
     ),
     '#default_value' => $placement ? $placement['scope'] : 'auto',
     '#required' => TRUE,
-    '#description' => t('<strong>Every item</strong> creates a discussion automatically the first time each piece of content is viewed. <strong>Only items the author enables</strong> adds a checkbox to the content edit form, so a discussion appears only where it is switched on — use this to give just one page a discussion. Disable core comments on this content type yourself either way.'),
+    '#description' => t('<strong>Every item</strong> creates a discussion automatically the first time each piece of content is viewed. <strong>Only items the author enables</strong> adds a checkbox to the content edit form, so a discussion appears only where it is switched on - use this to give just one page a discussion. Disable core comments on this content type yourself either way.'),
   );
 
   $form['actions'] = array('#type' => 'actions');
@@ -1099,7 +1099,7 @@ function entity_forum_node_discussion_form_submit($form, &$form_state) {
 /**
  * Confirmation form: delete a content-discussion placement.
  *
- * Removes the mapping only — existing discussion topics and their replies are
+ * Removes the mapping only, existing discussion topics and their replies are
  * left in place; the content simply stops rendering its discussion.
  *
  * @param string $type
@@ -1217,17 +1217,17 @@ function entity_forum_structure_page() {
   $manage = l(format_plural(count($topic_types), 'Manage 1 topic type', 'Manage @count topic types'), 'admin/structure/entity-forum/topic-types');
   $rows[] = array(
     l(t('Topic'), 'admin/structure/entity-forum/topic-types'),
-    t('Discussion threads within a forum. Topics have types — add a type to give a kind of topic its own fields.'),
+    t('Discussion threads within a forum. Topics have types - add a type to give a kind of topic its own fields.'),
     $manage,
   );
   // A reply's type is its topic's type, so reply fields live on each topic
   // type's Replies tab, not on a reply-types page of their own. The Reply row
-  // leads to the reply fields overview — its own landing, one row per type
-  // with reply-only operations — never to the topic-types list: sending both
+  // leads to the reply fields overview, its own landing, one row per type
+  // with reply-only operations, never to the topic-types list: sending both
   // rows to the same list read as "replies have no fields of their own".
   $rows[] = array(
     l(t('Reply'), 'admin/structure/entity-forum/replies'),
-    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type — a collection separate from the topic\'s own fields. For example, an attendee count on replies to an event.'),
+    t('Replies to forum topics. A reply takes its type from the topic it is posted in, so its fields live on that topic type - a collection separate from the topic\'s own fields. For example, an attendee count on replies to an event.'),
     l(t('Manage reply fields'), 'admin/structure/entity-forum/replies'),
   );
   if (!$field_ui) {
@@ -1327,11 +1327,11 @@ function entity_forum_topic_types_page() {
  *
  * The reply-side twin of entity_forum_topic_types_page(), in the same table
  * shape. A reply's type is derived from its topic, so the reply bundles ARE
- * the topic types — one row per type, but the operations here are the
+ * the topic types, one row per type, but the operations here are the
  * reply-only Field UI pages, never the topic's. Deliberately NO Edit
  * operation: a reply bundle has no settings of its own (its "edit" is the
  * topic type's edit form), and linking that here would send two rows to the
- * same form — the exact confusion this page exists to remove.
+ * same form, the exact confusion this page exists to remove.
  *
  * @return array
  *   Render array.
@@ -1358,7 +1358,7 @@ function entity_forum_reply_types_page() {
   }
 
   $build['intro'] = array(
-    '#markup' => '<p>' . t('A reply takes its type from the topic it is posted in, so reply fields belong to a topic type — a collection separate from the topic\'s own fields. Pick the type whose replies you want to shape.') . '</p>',
+    '#markup' => '<p>' . t('A reply takes its type from the topic it is posted in, so reply fields belong to a topic type - a collection separate from the topic\'s own fields. Pick the type whose replies you want to shape.') . '</p>',
   );
   if (!$field_ui) {
     $build['notice'] = array(
@@ -1551,7 +1551,7 @@ function entity_forum_admin_topic_add_page() {
  * Exists so Field UI has a page to hang its Manage fields / Manage display
  * tabs on for the reply bundle (see the reply bundles in
  * entity_forum_entity_info()). Replies are not configurable in their own
- * right — their type is their topic's type — so this page only explains
+ * right, their type is their topic's type, so this page only explains
  * itself and points at the field tabs.
  *
  * @param object $topic_type
@@ -1564,7 +1564,7 @@ function entity_forum_topic_type_replies_page($topic_type) {
   $path = 'admin/structure/entity-forum/topic-types/' . str_replace('_', '-', $topic_type->type) . '/replies';
   $build = array();
   $build['intro'] = array(
-    '#markup' => '<p>' . t('Replies in %type topics have their <strong>own field collection, separate from the topic\'s fields</strong> — the topic\'s <em>Manage fields</em> tab and the <em>Manage reply fields</em> tab below are two independent sets. For example, a %type topic may carry price and contact fields while its replies carry none, or an offer amount that the topic does not. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
+    '#markup' => '<p>' . t('Replies in %type topics have their <strong>own field collection, separate from the topic\'s fields</strong> - the topic\'s <em>Manage fields</em> tab and the <em>Manage reply fields</em> tab below are two independent sets. For example, a %type topic may carry price and contact fields while its replies carry none, or an offer amount that the topic does not. A reply takes its type from the topic it belongs to, so there is nothing to choose: post a reply in a %type topic and it is a %type reply.', array(
       '%type' => $topic_type->label,
     )) . '</p>',
   );
@@ -1588,12 +1588,12 @@ function entity_forum_topic_type_replies_page($topic_type) {
 /**
  * Page callback: the Help tab (admin/content/entity-forum/help).
  *
- * A plain in-module help page — Backdrop core has dropped hook_help(), so
+ * A plain in-module help page, Backdrop core has dropped hook_help(), so
  * this is our own page rather than a hook_help() implementation. The body is
  * assembled from four audience helpers (site builders, forum builders,
  * moderators, members). Keeping each audience in its own helper is
- * deliberate: when the page is later split — the moderator and member
- * sections becoming frontend pages with their own access — a helper is
+ * deliberate: when the page is later split, the moderator and member
+ * sections becoming frontend pages with their own access, a helper is
  * lifted whole rather than untangled from a monolithic string.
  *
  * @return array
@@ -1634,8 +1634,8 @@ function entity_forum_help_page() {
 /**
  * Help content: getting the module installed and setting site-wide policy.
  *
- * Covers the parts a sitedev decides once — requirements, permissions, the
- * per-field access model, and node-attached discussions — including the two
+ * Covers the parts a sitedev decides once, requirements, permissions, the
+ * per-field access model, and node-attached discussions, including the two
  * traps that have no home in the README: Content Access does nothing here,
  * and core comments must be disabled by hand on a discussion-enabled type.
  *
@@ -1647,12 +1647,12 @@ function _entity_forum_help_site_builders() {
   $settings = l(t('Settings tab'), 'admin/content/entity-forum/settings');
 
   $html = '';
-  $html .= '<p>' . t('Requirements: the <em>entity</em>, <em>entity_plus</em> and <em>views</em> modules. Entity Forum provides the <code>forums</code>, <code>forum/*</code> and <code>topic/*</code> paths, so it cannot run alongside core <em>Forum</em> or <em>Forum NG</em> — installation is blocked while either is enabled.') . '</p>';
+  $html .= '<p>' . t('Requirements: the <em>entity</em>, <em>entity_plus</em>, <em>views</em> and <em>text</em> modules. Entity Forum provides the <code>forums</code>, <code>forum/*</code> and <code>topic/*</code> paths, so it cannot run alongside the contrib <em>Forum</em> or <em>Forum NG</em> modules - installation is blocked while either is enabled.') . '</p>';
 
   $html .= '<h3>' . t('Setup order') . '</h3>';
   $html .= '<ol>';
   $html .= '<li>' . t('Create your forums (see <em>For forum builders</em> below).') . '</li>';
-  $html .= '<li>' . t('Grant @perms — the important ones are listed next.', array('@perms' => $perms)) . '</li>';
+  $html .= '<li>' . t('Grant @perms - the important ones are listed next.', array('@perms' => $perms)) . '</li>';
   $html .= '<li>' . t('Review the @settings for forum pictures, moderation and node discussions.', array('@settings' => $settings)) . '</li>';
   $html .= '<li>' . t('Optional: add topic types and attach fields.') . '</li>';
   $html .= '</ol>';
@@ -1662,15 +1662,15 @@ function _entity_forum_help_site_builders() {
 
   $html .= '<h3>' . t('Per-field access, and a trap') . '</h3>';
   $html .= '<p>' . t('To let only some roles add attachments, or to show an offer amount only to the seller and moderators, install the contrib <em>Field Permissions</em> module and set permissions per field. Entity Forum bridges post authorship so the <em>own</em>-content variants work correctly on forum posts.') . '</p>';
-  $html .= '<p class="messages warning">' . t('<strong>Content Access does nothing here.</strong> It is a <em>node</em> access module and works through the node access system; forums, topics and replies are entities, not nodes, so it never runs on them. <em>Field Permissions</em> is the module that applies — installing Content Access to gate forum content will silently do nothing.') . '</p>';
+  $html .= '<p class="messages warning">' . t('<strong>Content Access does nothing here.</strong> It is a <em>node</em> access module and works through the node access system; forums, topics and replies are entities, not nodes, so it never runs on them. <em>Field Permissions</em> is the module that applies - installing Content Access to gate forum content will silently do nothing.') . '</p>';
 
   $html .= '<h3>' . t('Node discussions (a comments replacement)') . '</h3>';
   $html .= '<p>' . t('Add a placement on the @settings to give a content type a forum discussion instead of core comments. Choose a scope:', array('@settings' => $settings)) . '</p>';
   $html .= '<ul>';
-  $html .= '<li>' . t('<strong>Every item of this type</strong> — a discussion is created for each piece of content automatically.') . '</li>';
-  $html .= '<li>' . t('<strong>Only items the author enables</strong> — adds a <em>Forum Discussions</em> checkbox to the content edit form, so a discussion appears only where it is switched on.') . '</li>';
+  $html .= '<li>' . t('<strong>Every item of this type</strong> - a discussion is created for each piece of content automatically.') . '</li>';
+  $html .= '<li>' . t('<strong>Only items the author enables</strong> - adds a <em>Forum Discussions</em> checkbox to the content edit form, so a discussion appears only where it is switched on.') . '</li>';
   $html .= '</ul>';
-  $html .= '<p class="messages warning">' . t('Either way, <strong>disable core comments on that content type yourself</strong> — the module deliberately does not touch core comment settings, so without this a node would show both.') . '</p>';
+  $html .= '<p class="messages warning">' . t('Either way, <strong>disable core comments on that content type yourself</strong> - the module deliberately does not touch core comment settings, so without this a node would show both.') . '</p>';
 
   return $html;
 }
@@ -1679,7 +1679,7 @@ function _entity_forum_help_site_builders() {
  * Help content: building forums, topic types and their views.
  *
  * Leads with the topic-type workflow because setting the type on the FORUM
- * is the least discoverable step in the module — posting never asks for it.
+ * is the least discoverable step in the module, posting never asks for it.
  *
  * @return string
  *   HTML markup.
@@ -1691,21 +1691,21 @@ function _entity_forum_help_forum_builders() {
   $html = '';
   $html .= '<h3>' . t('Forums and sub-forums') . '</h3>';
   $html .= '<p>' . t('Add forums from the @forums with <em>Add forum</em>. A forum with a parent becomes a sub-forum, with post counts and breadcrumbs rolled up automatically. Mark a forum <em>private</em> and its topics, replies and file attachments all inherit that privacy.', array('@forums' => $forums)) . '</p>';
-  $html .= '<p>' . t('Setting a forum\'s topic type to <strong>- None -</strong> makes it a <em>container</em>: it groups sub-forums and takes no topics of its own (the phpBB/bbPress "category"). A forum can still hold both sub-forums and topics — being a container is a deliberate choice, never inferred from having sub-forums.') . '</p>';
+  $html .= '<p>' . t('Setting a forum\'s topic type to <strong>- None -</strong> makes it a <em>container</em>: it groups sub-forums and takes no topics of its own (the phpBB/bbPress "category"). A forum can still hold both sub-forums and topics - being a container is a deliberate choice, never inferred from having sub-forums.') . '</p>';
 
   $html .= '<h3>' . t('Topic types, and the step everyone misses') . '</h3>';
-  $html .= '<p>' . t('Topic types work like content types: each has its own fields, and a forum is set to one — so a Classified Adverts forum can carry a price and photos while the discussion forums stay plain. The workflow, in order:') . '</p>';
+  $html .= '<p>' . t('Topic types work like content types: each has its own fields, and a forum is set to one - so a Classified Adverts forum can carry a price and photos while the discussion forums stay plain. The workflow, in order:') . '</p>';
   $html .= '<ol>';
   $html .= '<li>' . t('Add a type on @types.', array('@types' => $types)) . '</li>';
   $html .= '<li>' . t('Add its fields on that type\'s <em>Manage fields</em> tab.') . '</li>';
   $html .= '<li>' . t('Add any reply fields on the type\'s <em>Replies</em> tab (a reply takes its type from the topic it is posted in, so a reply to a classified ad can carry, say, an offer amount).') . '</li>';
   $html .= '<li>' . t('<strong>Set the type on the FORUM</strong>, on the forum edit form.') . '</li>';
   $html .= '</ol>';
-  $html .= '<p class="messages warning">' . t('<strong>The last step is the one that catches people.</strong> Posting never asks which type to use — the forum decides — so a topic type you have built does nothing until a forum is pointed at it. A forum that wants a different kind of topic gets a sub-forum set to that type. Changing a forum\'s type does not retype topics already in it; they keep the type they were created with.') . '</p>';
+  $html .= '<p class="messages warning">' . t('<strong>The last step is the one that catches people.</strong> Posting never asks which type to use - the forum decides - so a topic type you have built does nothing until a forum is pointed at it. A forum that wants a different kind of topic gets a sub-forum set to that type. Changing a forum\'s type does not retype topics already in it; they keep the type they were created with.') . '</p>';
 
   $html .= '<h3>' . t('Views: copy, do not edit') . '</h3>';
   $html .= '<p>' . t('The shipped views are meant to be <strong>copied and amended</strong>, not edited in place. Each forum picks which view display renders its topic list (on the forum edit form), so a classified-ads forum can point at a copied grid view showing an image and price while the discussion forums keep the standard topic table. Clone the <code>entity_forum_topics</code> view, shape the copy, then select that display on the forum.') . '</p>';
-  $html .= '<p>' . t('Privacy is enforced on the base tables themselves, so a copied view is safe — but always confirm a new forum view does not expose a private forum before relying on it.') . '</p>';
+  $html .= '<p>' . t('Privacy is enforced on the base tables themselves, so a copied view is safe - but always confirm a new forum view does not expose a private forum before relying on it.') . '</p>';
 
   return $html;
 }
@@ -1727,9 +1727,9 @@ function _entity_forum_help_moderators() {
   $html .= '<h3>' . t('The queue') . '</h3>';
   $html .= '<p>' . t('Posts held for review collect on the @queue page, reachable from the moderation panels shown above the forum lists. Each held post can be <em>approved</em> (published) or <em>kept hidden</em>.', array('@queue' => $queue)) . '</p>';
   $html .= '<h3>' . t('Holds and suspensions') . '</h3>';
-  $html .= '<p>' . t('Set a member\'s posting status to hold their future posts for review, or to suspend them from posting altogether. A held member\'s posts still submit — they queue for approval rather than appearing at once.') . '</p>';
+  $html .= '<p>' . t('Set a member\'s posting status to hold their future posts for review, or to suspend them from posting altogether. A held member\'s posts still submit - they queue for approval rather than appearing at once.') . '</p>';
   $html .= '<h3>' . t('Reports') . '</h3>';
-  $html .= '<p>' . t('Members can report a topic or reply. A reported post stays visible with a moderator-only highlight rather than being hidden automatically — a human decides. Resolve a report from the same moderation tools.') . '</p>';
+  $html .= '<p>' . t('Members can report a topic or reply. A reported post stays visible with a moderator-only highlight rather than being hidden automatically - a human decides. Resolve a report from the same moderation tools.') . '</p>';
 
   return $html;
 }
@@ -1752,8 +1752,8 @@ function _entity_forum_help_members() {
   $html .= '<li>' . t('<strong>Start a topic</strong> from a forum\'s <em>New topic</em> link. Any fields the forum\'s topic type carries (a price, a photo) appear on the form.') . '</li>';
   $html .= '<li>' . t('<strong>Reply</strong> from the <em>Reply</em> link on a topic or post. Replies are threaded and paged so a conversation is never split across pages.') . '</li>';
   $html .= '<li>' . t('<strong>Report</strong> a topic or reply with its <em>Report</em> link if it needs a moderator\'s attention.') . '</li>';
-  $html .= '<li>' . t('<strong>Forum picture</strong> — set a personal avatar on the <em>Forum</em> tab of the account page; it shows on posts and in topic lists.') . '</li>';
-  $html .= '<li>' . t('<strong>Mark as sold / close</strong> — in forums that allow it, the topic author gets a self-service link to close (and reopen) their own topic, e.g. to mark a classified ad sold.') . '</li>';
+  $html .= '<li>' . t('<strong>Forum picture</strong> - set a personal avatar on the <em>Forum</em> tab of the account page; it shows on posts and in topic lists.') . '</li>';
+  $html .= '<li>' . t('<strong>Mark as sold / close</strong> - in forums that allow it, the topic author gets a self-service link to close (and reopen) their own topic, e.g. to mark a classified ad sold.') . '</li>';
   $html .= '</ul>';
 
   return $html;

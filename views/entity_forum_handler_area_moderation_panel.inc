@@ -9,7 +9,7 @@
  *
  * Like entity_forum_handler_area_post_link, this exists for the per-viewer
  * decision Views cannot make itself: the panel is shown ONLY to moderators, and
- * only when something is waiting — a display's access setting would gate the
+ * only when something is waiting, a display's access setting would gate the
  * whole view, and a "Global: Text area" has no idea who is looking. It defers
  * entirely to _entity_forum_moderation_panel(), which checks
  * entity_forum_user_is_moderator() and the pending counts, so every rule stays
@@ -24,7 +24,7 @@ class entity_forum_handler_area_moderation_panel extends views_handler_area {
    * Implements views_handler_area::render().
    *
    * @param bool $empty
-   *   Whether the view produced no results (unused — the panel is relevant to
+   *   Whether the view produced no results (unused, the panel is relevant to
    *   moderators either way).
    *
    * @return string

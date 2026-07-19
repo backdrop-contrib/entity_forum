@@ -18,8 +18,8 @@ through the normal Backdrop UI. There is no forum-shaped walled garden: if you
 can build a content type and a View, you can shape the forum.
 
 **It ships primitives, not policy.** The module deliberately does not decide
-what your forum is for. It gives you the pieces — types, fields, views, access
-— and stays out of the way, rather than shipping one site's idea of a forum and
+what your forum is for. It gives you the pieces - types, fields, views, access,
+and stays out of the way, rather than shipping one site's idea of a forum and
 asking you to fight it.
 
 ---
@@ -31,7 +31,7 @@ asking you to fight it.
   ratings, prices, …) through the normal Backdrop UI, with no forum-specific
   code.
 - **Topic types**, like content types: each has its own fields, and a forum is
-  set to one — so a Classified Adverts forum can carry a price and photos while
+  set to one, so a Classified Adverts forum can carry a price and photos while
   the discussion forums stay plain. Replies inherit their topic's type, so a
   reply to an ad can have its own fields too.
 - **Sub-forums** with rolled-up post counts and climbing breadcrumbs.
@@ -40,26 +40,26 @@ asking you to fight it.
   attachments all inheriting it.
 - **Moderation**: hold a member's posts for review or suspend them from posting;
   held posts queue for approval. Members can report posts, and a reported post
-  stays visible with a moderator-only highlight — a human decides.
+  stays visible with a moderator-only highlight, a human decides.
 - **A replacement for core comments**: opt a content type in and its nodes get
   a forum discussion instead, with the same replies, moderation and fields.
 - **Views integration**: all three entity types are Views base tables, with
   extra fields for author picture, aggregate forum counts and last activity.
-  The shipped views are meant to be **copied and amended** — and each forum
+  The shipped views are meant to be **copied and amended**, and each forum
   picks which view display renders its topic list, so a classified-ads forum
   can show an image grid while the discussion forums stay a topic table.
 - **Attachments are just fields**: add a file or image field and that *is* your
-  attachment system — widget, validation, image styles and per-field
+  attachment system, widget, validation, image styles and per-field
   permissions all included. The module adds only the part fields cannot do:
   files belonging to a **private** forum's posts are kept in the private file
   system and served only to members who may view that forum.
 - **Per-field permissions** via the contrib
   [Field Permissions](https://backdropcms.org/project/field_permissions)
-  module — let only certain roles add attachments, or show an offer amount only
+  module, let only certain roles add attachments, or show an offer amount only
   to the seller and the moderators. Entity Forum bridges its author information
   so the *own*-content variants work correctly on forum posts.
 - **Member deletion protection**: forum content survives account deletion with
-  full attribution — a member leaving does not blank their history or orphan
+  full attribution, a member leaving does not blank their history or orphan
   the threads they started.
 - **Forum pictures**: a module-owned avatar per member, with an admin-set
   default, shown on posts and in topic lists.
@@ -71,44 +71,6 @@ asking you to fight it.
 
 ---
 
-## Limitations
-
-**One source forum per site.** This module and its importers support migrating
-from *one* forum system; you cannot combine two different forums into a single
-Backdrop Entity Forum. This is such a fringe case that we decided against
-allowing multiple forum imports. If it is something you require, please submit
-an issue — charges may apply for such development.
-
-Entity Forum provides the `forums`, `forum/*` and `topic/*` paths, so it
-**cannot run alongside `forum` or `forum_ng`** - installation is blocked
-while either is enabled.
-
-**Inline images stay public.** Images placed directly into post text are part
-of the content, so their URLs cannot be gated by forum privacy. Private-forum
-*attachments* (file and image fields) are gated.
-
-**CSS Styling** While some initial CSS styling have been created, there will
-be gaps where fields don't receive adequate CSS tags.
-If you would like a certain tag adding to the module please reiase an issue in
-the Git-Hub issue queue.
-
----
-
-## Related / Useful Modules
-
-- **entity_forum_importer** — imports existing forum content into Entity Forum.
-  WordPress bbPress is the implemented source; converters for Backdrop's own
-  `forum`, `forum_ng` and comments are planned alongside it. Disposable by
-  design: remove it once a site's migration is done.
-- **Field Permissions** (contrib, optional) — per-field permissions, as above.
-- **Image library image access** (contrib, optional) - when forum members can
-    upload images through the editor, the core image library dialog lets them
-    browse EVERY image on the site. The image_library_image_access contrib
-    module limits users to their own uploads (plus a bypass permission).
-    [Image library image access](https://backdropcms.org/project/image_library_image_access)
-
----
-
 ## Requirements
 
 - Backdrop CMS 1.x
@@ -116,6 +78,7 @@ the Git-Hub issue queue.
 - Entity
 - Entity Plus
 - Views
+- Text (core)
 
 ---
 
@@ -129,23 +92,26 @@ Enable the module, then clear your system caches to register the admin menu item
 
 ## Configuration
 
-To add or modify fields on the Forum, Topics or Replies visit the "Forum structure" menu (Structure -> Forum structure) /admin/structure/entity-forum
+To add or modify fields on Forums, Topics or Replies, visit the "Forum
+structure" page (Structure → Forum structure, admin/structure/entity-forum).
 
-For general administration: -
+For general administration: Content → Forums (admin/content/entity-forum).
 
-Content -> Forums (admin/content/entity-forum)
+The three overview tabs (Forums, Topics, Replies) are each a shipped View —
+the columns below are the defaults, and every one is customisable in the
+Views UI.
 
-### Tabs [Forum | Topics | Replies | Settings | Help]
+### Tabs: Forums | Topics | Replies | Settings | Help
 
-**Forum** - list of Forums - Customisable View
+**Forums** - list of forums (admin/content/entity-forum)
 - Add forum
-- visibility
+- Visibility
 - Topic count
 - Status
 - Listed status
 - Operations [edit | delete]
 
-**Topics** - List of Topics with search - Customisable View (admin/content/entity-forum/topics)
+**Topics** - list of topics, with search (admin/content/entity-forum/topics)
 - Title
 - Type
 - Forum
@@ -156,7 +122,7 @@ Content -> Forums (admin/content/entity-forum)
 - Status
 - Operations [edit | delete]
 
-**Replies** - List of replies - Customisable View (admin/content/entity-forum/replies)
+**Replies** - list of replies (admin/content/entity-forum/replies)
 - Content
 - Topic
 - Author
@@ -165,24 +131,66 @@ Content -> Forums (admin/content/entity-forum)
 - Operations [edit | delete]
 
 **Settings** (admin/content/entity-forum/settings)
-- Default Forum pictures
-- Content discussions (comments replacement) - See below
+- Default forum picture
+- Content discussions (comments replacement), see below
+- Remove pre-installed forums (shown while the starter demo forums are still present)
 
-**Help** - (admin/content/entity-forum/help)
-
+**Help** (admin/content/entity-forum/help)
 
 **Content discussions** (comments replacement) (admin/content/entity-forum/settings/discussions/add)
-- Select Content Type (The content whose discussion appears below it. Remember to disable core comments on this type yourself.)
-- Select Discussion forum (The forum the discussion topics are created in.)
+- Content type, the content whose discussion appears below it. Remember to disable core comments on this type yourself.
+- Discussion forum, the forum the discussion topics are created in.
 - Show on [Every item of this type | Only items the author enables]
-- Remove re-installed forum
+
+---
+
+## Limitations
+
+**One source forum per site.** This module and its importers support migrating
+from *one* forum system; you cannot combine two different forums into a single
+Backdrop Entity Forum. This is such a fringe case that we decided against
+allowing multiple forum imports. If it is something you require, please submit
+an issue, charges may apply for such development.
+
+Entity Forum provides the `forums`, `forum/*` and `topic/*` paths, so it
+**cannot run alongside `forum` or `forum_ng`**, installation is blocked
+while either is enabled.
+
+**Inline images stay public.** Images placed directly into post text are part
+of the content, so their URLs cannot be gated by forum privacy. Private-forum
+*attachments* (file and image fields) are gated.
+
+**CSS styling.** Initial CSS is in place, but there will be gaps where some
+fields or markup do not yet receive styling. If you would like a specific
+class or hook added, please raise an issue in the GitHub issue queue.
+
+---
+
+## Related / Useful Modules
+
+- **entity_forum_importer**, imports existing forum content into Entity Forum.
+  WordPress bbPress is the implemented source; converters for Backdrop's own
+  `forum`, `forum_ng` and comments are planned alongside it. Disposable by
+  design: remove it once a site's migration is done.
+- **Field Permissions** (contrib, optional), per-field permissions, as above.
+- **[Image Library Image Access](https://backdropcms.org/project/image_library_image_access)**
+  (contrib, optional), when forum members can upload images through the
+  editor, the core image library dialog lets them browse every image on the
+  site; this module limits users to their own uploads (plus a bypass
+  permission). Entity Forum's status report recommends it when a text format
+  allows editor image uploads.
 
 ---
 
 ## Planned Features
-- Forum Importer
-- Forum NG Importer
-- Comments Importer
+
+- Backdrop Forum importer (the contrib `forum` module)
+- Forum NG importer
+- Comments importer
+- Notifications sub-module, optional email on new topics/replies (and, for
+  moderators, held posts and reports)
+- Frontend help pages for moderators and members (the current Help tab is
+  admin-only)
 
 ---
 

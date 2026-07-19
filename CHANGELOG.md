@@ -1,4 +1,4 @@
-# Changelog — Entity Forum
+# Changelog - Entity Forum
 
 Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release

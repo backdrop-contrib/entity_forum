@@ -947,15 +947,14 @@ function entity_forum_topic_type_load($name) {
  * shared text_long field with one instance per bundle, rather than a base
  * column, so a forum builder chooses its widget and text format per topic
  * type through Field UI (and a widget-configuring module like
- * acuity_text_formatter can attach to it, which the old built-in property
- * could not carry). Modelled on node_add_body_field(): the field is created
- * once and an instance per bundle, both steps idempotent so calling this for
- * an existing bundle is a no-op.
+ * acuity_text_formatter can attach to it). Modelled on node_add_body_field():
+ * the field is created once and an instance per bundle, both steps idempotent
+ * so calling this for an existing bundle is a no-op.
  *
  * @param string $entity_type
  *   'entity_forum_topic' or 'entity_forum_reply'.
  * @param string $bundle
- *   The topic type machine name — the bundle for both entity types.
+ *   The topic type machine name, the bundle for both entity types.
  * @param string $label
  *   The instance label, e.g. "Content" for a topic or "Reply" for a reply.
  *
@@ -1109,9 +1108,8 @@ function entity_forum_reply_type_usage($machine_name) {
  *
  * The type is a property of the FORUM, set when the forum is created: a
  * classifieds forum holds classified ads, and posting never asks. A forum
- * that needs a different kind of topic gets a sub-forum. This is what
- * replaced scoping fields to particular forums, the fields belong to the
- * type, and the forum picks the type, so Field API does the rest.
+ * that needs a different kind of topic gets a sub-forum. The fields belong to
+ * the type, and the forum picks the type, so Field API does the rest.
  *
  * Falls back to the default type when the forum names a type that has since
  * been deleted, rather than leave a forum nothing can be posted in.
@@ -1160,11 +1158,10 @@ function entity_forum_forum_is_container($forum) {
 /**
  * Returns the view display that renders a forum's topic list.
  *
- * The forum page used to embed one hardcoded view display for every forum on
- * every site. Choosing it per forum is what lets a sitedev's copy of the
- * topics view actually be USED, a classifieds forum rendering as an ad grid
- * while General stays a topic table, instead of only ever living on a
- * standalone page.
+ * Choosing the display per forum is what lets a sitedev's copy of the topics
+ * view actually be USED, a classifieds forum rendering as an ad grid while
+ * General stays a topic table, instead of only ever living on a standalone
+ * page.
  *
  * Falls back to the shipped default when the forum names a view or display
  * that has since been deleted, on the same principle as
@@ -1455,7 +1452,7 @@ function entity_forum_menu() {
   //   tab" page display at admin/content/entity-forum/forums that also creates
   //   the parent admin/content/entity-forum item (a tab on admin/content). It
   //   uses the entity_forum_forum_hierarchy style so forums indent under their
-  //   parent, the tree the old code callback hand-rolled, now a Views style.
+  //   parent.
   // - Topics: entity_forum_topics_admin at .../topics.
   // - Replies: forum_replies_admin at .../replies.
   // See config/views.view.*.json. Do NOT redeclare admin/content/entity-forum
@@ -1488,7 +1485,7 @@ function entity_forum_menu() {
   // Content-discussion placements: add/edit/delete a single content-type →
   // forum mapping. Keyed on the content type machine name (the node_types
   // config key). These are the "Add placement" workflow behind the table on
-  // the settings page, replacing the old one-select-per-type list.
+  // the settings page.
   $items['admin/content/entity-forum/settings/remove-starter-forums'] = array(
     'title' => 'Remove pre-installed forums',
     'page callback' => 'backdrop_get_form',
@@ -1522,13 +1519,13 @@ function entity_forum_menu() {
     'file' => 'entity_forum.admin.inc',
   );
 
-  // Structure UI: the entity types are fieldable — these bundle admin
+  // Structure UI: the entity types are fieldable, these bundle admin
   // pages give Field UI somewhere to attach its "Manage fields" and
   // "Manage display" tabs, so sites can add fields (e.g. attachments)
   // through the normal Backdrop UI.
   // Titled "Forum structure", not "Forums": the Content section already owns
   // "Forums" (admin/content/entity-forum), so a second identically-named
-  // entry in the admin menu is ambiguous. This is the field/display hub —
+  // entry in the admin menu is ambiguous. This is the field/display hub,
   // core draws the same line ("Content" vs "Content types").
   $items['admin/structure/entity-forum'] = array(
     'title' => 'Forum structure',
@@ -1573,7 +1570,7 @@ function entity_forum_menu() {
   // Reply fields overview: one table row per topic type (the reply bundle IS
   // the topic type), each with reply-only Manage fields / Manage display
   // operations. Exists so the structure page's Reply row has a landing of its
-  // own instead of collapsing onto the topic-types list — going to the same
+  // own instead of collapsing onto the topic-types list, going to the same
   // list from both rows read as "replies have no fields of their own".
   $items['admin/structure/entity-forum/replies'] = array(
     'title' => 'Reply fields',
@@ -1698,12 +1695,12 @@ function entity_forum_menu() {
  * Implements hook_menu_alter().
  *
  * Disambiguates the reply Field UI tabs. Topics and replies share one set of
- * bundles (the site's topic types) but keep SEPARATE field collections — a
+ * bundles (the site's topic types) but keep SEPARATE field collections, a
  * classified topic carries price / schedule / contact fields, while replies to
  * it deliberately do not. Field UI titles BOTH bundles' overview tabs "Manage
  * fields" / "Manage displays", so on a topic type's page the reply tabs
  * (secondary, under the Replies tab) read identically to the topic tabs
- * (primary) and look like the very same control — which reads as "I can't give
+ * (primary) and look like the very same control, which reads as "I can't give
  * replies their own fields" even though the two collections are entirely
  * separate. Renaming the reply tabs makes the two collections unmistakable.
  *
@@ -1861,7 +1858,7 @@ function entity_forum_post_forum_id($type, $id) {
  *
  * **Deliberately keyed on the usage's TYPE, never on its module.** Files
  * reach a post through Field API, and core records those usages as module
- * 'file' — so a module filter would make this return nothing for every field
+ * 'file', so a module filter would make this return nothing for every field
  * file, and entity_forum_file_download() would abstain on precisely the files
  * it exists to protect. {file_usage} is already the generic index of "which
  * files does this post use"; who wrote the row is not this module's business.
@@ -1869,7 +1866,7 @@ function entity_forum_post_forum_id($type, $id) {
  * the code path that happened to create it.
  *
  * Rows for other entity types (forum pictures are usage rows on 'user') are
- * ignored — entity_forum_post_forum_id() returns 0 for anything that is not a
+ * ignored, entity_forum_post_forum_id() returns 0 for anything that is not a
  * forum post.
  *
  * @param int $fid
@@ -1894,7 +1891,7 @@ function entity_forum_file_forums($fid) {
 /**
  * Whether a forum attachment must live in the private:// scheme.
  *
- * A file is private when ANY forum it is attached to is private — the
+ * A file is private when ANY forum it is attached to is private, the
  * most restrictive using forum wins.
  *
  * @param int $fid
@@ -1920,7 +1917,7 @@ function entity_forum_file_should_be_private($fid) {
  * least one of the forums it belongs to (public forums are viewable by
  * everyone; private forums require 'view private entity forum'). Files this
  * module does not manage are ignored (return NULL). Public:// attachments
- * never reach this hook — they are served directly by the web server.
+ * never reach this hook, they are served directly by the web server.
  *
  * @param string $uri
  *   The URI of the file being downloaded.
@@ -1935,7 +1932,7 @@ function entity_forum_file_download($uri) {
   }
   $forums = entity_forum_file_forums($fid);
   if (!$forums) {
-    // Not a forum attachment — let other modules decide.
+    // Not a forum attachment, let other modules decide.
     return NULL;
   }
   foreach ($forums as $forum_id) {
@@ -1953,7 +1950,7 @@ function entity_forum_file_download($uri) {
  * Private-forum attachments belong in private:// (gated by
  * entity_forum_file_download()); everything else stays public://. The file
  * keeps its path within the scheme, and stale image derivatives at the old
- * location are flushed. Safe and idempotent — a no-op when already correct.
+ * location are flushed. Safe and idempotent, a no-op when already correct.
  *
  * @param object $file
  *   A managed file object.
@@ -2035,7 +2032,7 @@ function entity_forum_rescheme_forum_files($forum_id) {
  * where it uploads, and it decides once for the whole field.** A field
  * attached to a topic type used in both a public and a private forum has one
  * upload destination for both, so a member posting a photo to a private forum
- * lands it in public:// — where the web server serves it directly and
+ * lands it in public:// - where the web server serves it directly and
  * entity_forum_file_download() is never consulted. Privacy is a property of
  * the FORUM, not of the field, so the post's own save is the only point that
  * can put the file in the right scheme.
@@ -2043,14 +2040,13 @@ function entity_forum_rescheme_forum_files($forum_id) {
  * **Only FIELD files (module 'file') are moved, and that distinction is
  * load-bearing.** A field file is rendered by its formatter, which resolves
  * the URI at render time, so moving it is invisible. A file referenced from
- * inside post CONTENT — an inline image, whose URL is baked into the body text
- * as characters — cannot be moved without breaking the post, and no amount of
+ * inside post CONTENT, an inline image, whose URL is baked into the body text
+ * as characters, cannot be moved without breaking the post, and no amount of
  * re-scheming will fix the text. Hence entity_forum's standing limitation:
- * inline images stay public, and the gate covers the Attachments only. This
- * rule was learned the hard way: a previous pass keyed on the module that
- * WROTE the usage row rather than on whether the reference was baked, and
- * duly moved 118 inline images into private://, breaking every URL that
- * pointed at them.
+ * inline images stay public, and the gate covers the Attachments only. Keying
+ * this on the module that WROTE the usage row rather than on whether the
+ * reference is baked would move inline images into private:// and break every
+ * URL pointing at them.
  *
  * Contrast entity_forum_file_forums(), which deliberately ignores the module:
  * for the ACCESS question, any reference counts. For the MOVE question, only
@@ -2079,8 +2075,8 @@ function entity_forum_rescheme_post_files($entity_type, $id) {
  * Releases a deleted post's inline-image {file_usage} rows.
  *
  * Inline images pasted into a post body are copied local by the importer and
- * recorded with a bare {file_usage} row under module 'entity_forum' — never
- * 'file' (see entity_forum_rescheme_post_files()) — because the reference lives
+ * recorded with a bare {file_usage} row under module 'entity_forum', never
+ * 'file' (see entity_forum_rescheme_post_files()), because the reference lives
  * in the body TEXT, not a field. field_attach_delete() therefore cannot see
  * them, so deleting a topic or reply would otherwise strand both the usage row
  * and the physical file forever. This closes that gap for both single-post
@@ -2096,7 +2092,7 @@ function entity_forum_rescheme_post_files($entity_type, $id) {
  *
  * Only inline references are 'entity_forum'-owned; field attachments are module
  * 'file' and are released by field_attach_delete() on the same delete, so this
- * touches nothing a field manages. Inline images stay public either way — the
+ * touches nothing a field manages. Inline images stay public either way, the
  * standing limitation is unchanged; this only stops the leak of dead usage rows
  * and their now-unreferenced files.
  *
@@ -2259,7 +2255,7 @@ function entity_forum_topic_create_access($forum) {
  *
  * Requires view access to the topic (forum visibility and admin_only
  * listing included), the reply-creation permission, an open topic, and —
- * for unpublished topics — moderator rights.
+ * for unpublished topics, moderator rights.
  *
  * @param EntityForumTopic $topic
  *   The topic being replied to.
@@ -2281,7 +2277,7 @@ function entity_forum_reply_create_access($topic) {
  * Menu access callback: may the current user close/reopen this topic?
  *
  * Author self-service closing is opt-in per forum (the author_close
- * setting) — a seller marking a classified ad sold is the motivating
+ * setting), a seller marking a classified ad sold is the motivating
  * case, but the rule is generic. Only the author of a live, published
  * topic qualifies; unpublished and held topics belong to the moderators.
  *
@@ -2316,7 +2312,7 @@ function entity_forum_topic_author_close_access($topic, $account = NULL) {
  * comments replacement. It carries the forum its discussion topics live in
  * and a scope:
  * - 'auto': every item of the type gets a discussion, find-or-created on
- *   first view (the original behaviour).
+ *   first view.
  * - 'item': the discussion appears only where the author enabled it on the
  *   node itself (a checkbox on the node form); nothing is created on view.
  *
@@ -2365,7 +2361,7 @@ function entity_forum_node_discussion_forum_id($node_type) {
  *
  * With $create, a missing topic is created on the spot (find-or-create):
  * unlisted (never in forum topic lists), published, titled after the
- * node, authored by the node author, with an empty body — the node
+ * node, authored by the node author, with an empty body, the node
  * itself is the "opening post". Creation requires the node's content
  * type to have discussions enabled and the configured forum to exist.
  *
@@ -2432,7 +2428,7 @@ function entity_forum_topic_discussion_path($topic) {
  * Implements hook_node_view().
  *
  * Renders the discussion thread (threaded replies + reply/report links)
- * below nodes of discussion-enabled content types — the comments
+ * below nodes of discussion-enabled content types, the comments
  * replacement. The topic is find-or-created on first full view of a
  * published node; viewers only see the section when they may view the
  * topic (the configured forum's visibility applies).
@@ -2448,8 +2444,8 @@ function entity_forum_node_view($node, $view_mode, $langcode) {
   // Per-item placements render only where the discussion was enabled on the
   // node (a published attached topic exists); the topic is created from the
   // node form, never here. Whole-type placements find-or-create on first
-  // view as before. Topic 'view' access does not consider status, so the
-  // published check is made explicitly.
+  // view. Topic 'view' access does not consider status, so the published
+  // check is made explicitly.
   if ($placement['scope'] === 'item') {
     $topic = entity_forum_node_topic($node);
     if (!$topic || !$topic->status) {
@@ -2470,7 +2466,7 @@ function entity_forum_node_view($node, $view_mode, $langcode) {
  * Implements hook_node_delete().
  *
  * A node's discussion topic (and its replies, via the cascade) goes with
- * the node — the same semantics core comments have.
+ * the node, the same semantics core comments have.
  */
 function entity_forum_node_delete($node) {
   $topic_ids = db_query('SELECT topic_id FROM {entity_forum_topic} WHERE node_id = :nid', array(
@@ -2489,7 +2485,7 @@ function entity_forum_node_delete($node) {
  * Implements hook_form_BASE_FORM_ID_alter() for node_form.
  *
  * Content types whose discussion placement is scoped 'item' get a per-node
- * checkbox — the author decides which individual pieces of content show a
+ * checkbox, the author decides which individual pieces of content show a
  * forum discussion. Types scoped 'auto' (every item) and types with no
  * placement are left alone. The checkbox reflects whether a published
  * discussion topic already exists for the node.
@@ -2498,8 +2494,8 @@ function entity_forum_node_delete($node) {
  * separate from core's "Comment settings" tab: a forum discussion is a
  * distinct system from core comments (a site typically runs one or the
  * other), and nesting inside core's tab both tied the option's visibility to
- * the core comment permission and left core's Open/Closed tab summary — driven
- * by core's own JS — unable to reflect our checkbox. The tab carries no live
+ * the core comment permission and left core's Open/Closed tab summary, driven
+ * by core's own JS, unable to reflect our checkbox. The tab carries no live
  * summary, keeping the module JS-free by design.
  */
 function entity_forum_form_node_form_alter(&$form, &$form_state, $form_id) {
@@ -2542,7 +2538,7 @@ function entity_forum_form_node_form_alter(&$form, &$form_state, $form_id) {
  * Enabling find-or-creates the node's discussion topic and (re)publishes it;
  * disabling unpublishes an existing topic so it stops rendering while its
  * replies survive and re-enabling brings the same thread back. Never deletes
- * — node deletion is the only thing that removes a discussion (hook_node_delete).
+ *, node deletion is the only thing that removes a discussion (hook_node_delete).
  */
 function entity_forum_node_form_discussion_submit($form, &$form_state) {
   $node = $form_state['node'];
@@ -2691,7 +2687,7 @@ function entity_forum_topic_open_reports($topic_id) {
  */
 function entity_forum_reported_badge($count) {
   return '<div class="entity-forum-reported-flag">' . l(
-    format_plural($count, 'Reported content — 1 open report', 'Reported content — @count open reports'),
+    format_plural($count, 'Reported content, 1 open report', 'Reported content, @count open reports'),
     'forums/moderation'
   ) . '</div>';
 }
@@ -2723,7 +2719,7 @@ function entity_forum_modules_enabled($modules) {
  * account is removed. Whatever path deletes the account (cancel form, bulk
  * admin action, direct user_delete() API call), the member's posts are
  * kept: the author_name snapshot is filled from the account being deleted,
- * and author_uid is flipped to its negative — the "last uid". That makes
+ * and author_uid is flipped to its negative, the "last uid". That makes
  * former-member posts trivially queryable (author_uid < 0, e.g. in a
  * View) and reinstatable to a new account via
  * entity_forum_reassign_user_content(-$old_uid, $new_uid). Bylines render
@@ -2831,7 +2827,7 @@ function entity_forum_format_author($uid, $author_name = '') {
  * topic → last reply → author for "last poster" columns).
  *
  * Note: author_uid can be 0 (unknown importer authors) or negative
- * (deleted accounts) — those rows simply don't join; author_name is the
+ * (deleted accounts), those rows simply don't join; author_name is the
  * plain-text fallback for them.
  */
 function entity_forum_entity_property_info_alter(&$info) {
@@ -2900,7 +2896,7 @@ function entity_forum_entity_property_info_alter(&$info) {
  * Returns the forum picture file ID for a user account.
  *
  * The picture is a managed file owned by entity_forum (usage type
- * 'user'), stored in the account data array like the posting name — the
+ * 'user'), stored in the account data array like the posting name, the
  * module deliberately avoids site-specific fields and core's user
  * picture. Importers may seed it (e.g. from a migrated WordPress
  * avatar) with entity_forum_avatar_save().
@@ -2926,12 +2922,12 @@ function entity_forum_user_avatar_fid($account) {
  *
  * Registers the themeable post wrapper. A forum post (a topic's opening post or
  * a reply) is rendered through the 'entity_forum_post' template so a site theme
- * can restyle the whole post shell — avatar, byline, content slot, attached
- * fields, signature and links — by copying entity-forum-post.tpl.php into its
- * own directory. The module's hand-built markup moved here to make that possible
- * (the fields inside a post are already themeable via Manage Display; this opens
- * up the surrounding shell too). Threading, paging and the per-viewer moderation
- * decisions stay in code — the template receives only already-rendered pieces.
+ * can restyle the whole post shell, avatar, byline, content slot, attached
+ * fields, signature and links, by copying entity-forum-post.tpl.php into its
+ * own directory (the fields inside a post are already themeable via Manage
+ * Display; this opens up the surrounding shell too). Threading, paging and the
+ * per-viewer moderation decisions stay in code, the template receives only
+ * already-rendered pieces.
  */
 function entity_forum_theme() {
   return array(
@@ -3039,7 +3035,7 @@ function entity_forum_format_avatar($uid, $style = 'entity_forum_avatar') {
  *
  * An administrator-uploaded image (entity_forum.settings
  * avatar_default_fid, set at admin/content/entity-forum/settings) when
- * one exists, otherwise the module's shipped SVG silhouette — rendered
+ * one exists, otherwise the module's shipped SVG silhouette, rendered
  * as a plain image sized to match the style, because SVGs cannot pass
  * through image styles.
  *
@@ -3140,8 +3136,8 @@ function entity_forum_format_signature($uid) {
  * Implements hook_entity_load().
  *
  * Exposes the author as a standard 'uid' property alongside author_uid.
- * Modules that key ownership off $entity->uid — notably Field Permissions'
- * "own" field permissions — can then recognise a forum post's author.
+ * Modules that key ownership off $entity->uid, notably Field Permissions'
+ * "own" field permissions, can then recognise a forum post's author.
  * Deleted-author posts (author_uid <= 0) get uid 0, so no live account is
  * ever treated as their owner.
  */
@@ -3169,7 +3165,7 @@ function entity_forum_entity_presave($entity, $type) {
     }
   }
 
-  // A reply's type is its topic's type, never its own choice — the single
+  // A reply's type is its topic's type, never its own choice, the single
   // point where that is enforced, so no caller has to remember it (the
   // importer, the frontend form and any API save all go through here).
   // Kept alongside forum_id, which is denormalized from the topic the same
@@ -3184,8 +3180,8 @@ function entity_forum_entity_presave($entity, $type) {
   }
 
   // The pending flag only marks posts still held for review, so releasing
-  // the hold by ANY route — the queue's Approve action, the admin edit
-  // forms, or API saves — drops the post out of the moderation queue.
+  // the hold by ANY route, the queue's Approve action, the admin edit
+  // forms, or API saves, drops the post out of the moderation queue.
   if ($type === 'entity_forum_topic' && !empty($entity->pending) && $entity->listing !== ENTITY_FORUM_LISTING_ADMIN_ONLY) {
     $entity->pending = 0;
   }
@@ -3207,7 +3203,7 @@ function entity_forum_entity_presave($entity, $type) {
  * queries (not entity saves) so a member with thousands of posts
  * reassigns instantly; the denormalized topic statistics are unaffected
  * by authorship changes. Note: the author_name snapshot is deliberately
- * left untouched — refresh it separately if the new account should be
+ * left untouched, refresh it separately if the new account should be
  * displayed instead.
  *
  * @param int $uid
@@ -3291,7 +3287,7 @@ function entity_forum_form_user_multiple_cancel_confirm_alter(&$form, &$form_sta
  * Implements hook_entity_insert().
  *
  * Keeps the denormalized reply statistics on topics current whenever a
- * reply is created — by forms, the importer, or any other API user.
+ * reply is created, by forms, the importer, or any other API user.
  */
 function entity_forum_entity_insert($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
@@ -3301,7 +3297,7 @@ function entity_forum_entity_insert($entity, $type) {
     entity_forum_topic_recalculate_stats((int) $entity->topic_id);
   }
   // Field files land wherever the field's upload destination says, which
-  // knows nothing about forum privacy — see entity_forum_rescheme_post_files().
+  // knows nothing about forum privacy, see entity_forum_rescheme_post_files().
   if ($type === 'entity_forum_topic' || $type === 'entity_forum_reply') {
     entity_forum_rescheme_post_files($type, $entity->id());
   }
@@ -3343,7 +3339,7 @@ function entity_forum_entity_update($entity, $type) {
     }
   }
 
-  // The post's own files, every save — a new upload, or a field whose
+  // The post's own files, every save, a new upload, or a field whose
   // destination does not match the forum's privacy.
   if ($type === 'entity_forum_topic' || $type === 'entity_forum_reply') {
     entity_forum_rescheme_post_files($type, $entity->id());
@@ -3360,7 +3356,7 @@ function entity_forum_entity_delete($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
   }
-  // Reports about a deleted post are moot — remove them. Topic deletion
+  // Reports about a deleted post are moot, remove them. Topic deletion
   // cascades to replies below, and each cascaded reply delete comes back
   // through this hook, so reply reports (and inline files, released next) are
   // covered too.
@@ -3426,7 +3422,7 @@ function entity_forum_topic_recalculate_stats($topic_id) {
   ))->fetchField();
 
   // Files used by the topic post and its published replies, whichever field
-  // they arrived in — the count is "how many files are on this thread", not
+  // they arrived in, the count is "how many files are on this thread", not
   // "how many did one particular mechanism put there".
   $attachment_count = (int) db_query("SELECT COUNT(*) FROM {file_usage} fu WHERE (fu.type = 'entity_forum_topic' AND fu.id = :tid1) OR (fu.type = 'entity_forum_reply' AND fu.id IN (SELECT reply_id FROM {entity_forum_reply} WHERE topic_id = :tid2 AND status = 1))", array(
     ':tid1' => $topic_id,
@@ -3464,7 +3460,7 @@ function entity_forum_forum_topic_count($forum_id) {
  * Returns aggregate post counts and last activity for every forum.
  *
  * Built with two grouped queries (topics, replies) plus an in-PHP rollup
- * of each forum's descendants into it — so a parent forum's totals
+ * of each forum's descendants into it, so a parent forum's totals
  * include everything in its sub-forums (bbPress behaviour). The whole map
  * is computed once and cached, both per-request (backdrop_static) and in
  * the 'cache' bin; entity_forum_forum_counts_reset() clears it when
@@ -3502,7 +3498,7 @@ function entity_forum_forum_counts() {
   }
 
   // Direct (non-rolled-up) tallies: two grouped queries. Only normally
-  // listed topics count — admin_only and unlisted topics (and their
+  // listed topics count, admin_only and unlisted topics (and their
   // replies) are invisible in lists, and the map is cached globally, so
   // it must reflect what the public sees.
   $topic_rows = db_query('SELECT forum_id, COUNT(topic_id) AS topics, MAX(last_active_time) AS last_active FROM {entity_forum_topic} WHERE status = 1 AND listing = :listing GROUP BY forum_id', array(
@@ -3682,7 +3678,7 @@ function entity_forum_forum_subtree_ids($forum_id) {
  *
  * Deletes through the entity controller so each topic delete cascades to its
  * replies, reports and file usages (attachments are released for garbage
- * collection) — unlike a raw table drop. Chunked so a caller (batch op or a
+ * collection), unlike a raw table drop. Chunked so a caller (batch op or a
  * maintenance loop) can delete a large forum without exhausting time/memory.
  *
  * @param int[] $forum_ids
@@ -3726,10 +3722,10 @@ function entity_forum_forum_delete_forums(array $forum_ids) {
  *   The stored author_name snapshot, shown when the account is gone.
  *
  * @return string
- *   Sanitized "name — date" HTML snippet.
+ *   Sanitized "name, date" HTML snippet.
  */
 function entity_forum_format_byline($uid, $timestamp, $author_name = '') {
-  return t('!name — !date', array(
+  return t('!name - !date', array(
     '!name' => entity_forum_format_author($uid, $author_name),
     '!date' => format_date($timestamp, 'short'),
   ));
@@ -3787,15 +3783,11 @@ function entity_forum_posting_name_save($account, $posting_name) {
  * Implements hook_views_pre_render().
  *
  * For the admin overview views (which provide the Forums, Topics and Replies
- * tabs via their own page displays): attaches the admin stylesheet — so it
+ * tabs via their own page displays): attaches the admin stylesheet, so it
  * follows the view wherever it is shown, including a site builder's clone. The
  * stylesheet carries the forum-published/forum-unpublished status spans all
  * three use, plus the forum-public/forum-private visibility colouring +
  * capitalisation the Forums overview relies on.
- *
- * The body is a field now (entity_forum_body), so its excerpt is trimmed and
- * HTML-stripped by the field handler's own settings rather than here — the old
- * post-render strip of the base-table content column is gone with the column.
  */
 function entity_forum_views_pre_render(&$view) {
   $module_path = backdrop_get_path('module', 'entity_forum');
@@ -3804,8 +3796,7 @@ function entity_forum_views_pre_render(&$view) {
     backdrop_add_css($module_path . '/css/entity_forum_admin.css');
   }
   // The public forums index carries the frontend forum styles (the title /
-  // description / private-marker / moderation-panel classes) the code callback
-  // used to attach via _entity_forum_add_css().
+  // description / private-marker / moderation-panel classes).
   if ($view->name === 'entity_forum_forums') {
     backdrop_add_css($module_path . '/css/entity_forum.css');
   }

@@ -34,7 +34,7 @@ function entity_forum_requirements($phase) {
   if ($phase == 'install' && $conflicting) {
     $requirements['entity_forum_conflict'] = array(
       'title' => t('Entity Forum'),
-      'description' => t('Entity Forum cannot be installed while the following conflicting forum module(s) are enabled: %modules. They provide overlapping forum pages and URLs. Disable them before installing Entity Forum — they cannot be active at the same time.', array(
+      'description' => t('Entity Forum cannot be installed while the following conflicting forum module(s) are enabled: %modules. They provide overlapping forum pages and URLs. Disable them before installing Entity Forum - they cannot be active at the same time.', array(
         '%modules' => implode(', ', $conflicting),
       )),
       'severity' => REQUIREMENT_ERROR,
@@ -154,7 +154,7 @@ function entity_forum_requirements($phase) {
       }
     }
     if ($forum_count || $topic_count || $reply_count || $extra_fields) {
-      $description = t('Uninstalling Entity Forum permanently deletes all forum content and cannot be undone. To remove it cleanly first, delete your forums from the <a href="@forums">forum overview</a> — each forum\'s <em>Delete</em> action removes the forum and everything inside it (topics, replies and their file attachments).', array(
+      $description = t('Uninstalling Entity Forum permanently deletes all forum content and cannot be undone. To remove it cleanly first, delete your forums from the <a href="@forums">forum overview</a> - each forum\'s <em>Delete</em> action removes the forum and everything inside it (topics, replies and their file attachments).', array(
         '@forums' => url('admin/content/entity-forum'),
       ));
       if ($extra_fields) {
@@ -226,7 +226,7 @@ function entity_forum_install_starter_forums() {
 
   $general = _entity_forum_create_starter_forum(array(
     'title' => 'General Discussion',
-    'description' => 'A place for general chat — the standard forum, out of the box.',
+    'description' => 'A place for general chat, the standard forum, out of the box.',
     'weight' => 0,
     'topic_type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
   ), $format);
@@ -479,14 +479,14 @@ function entity_forum_schema() {
         'length' => 128,
         'not null' => TRUE,
         'default' => '',
-        'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default — so a site that never chooses one follows the module, and a photo-gallery forum can render as a thumbnail grid while the discussion forums stay a topic table. Read it through entity_forum_forum_topic_list_view(), which falls back to the default if the named view has since been deleted.',
+        'description' => 'The view display rendering this forum\'s topic list, as "view_name:display_id". Empty means the shipped default - so a site that never chooses one follows the module, and a photo-gallery forum can render as a thumbnail grid while the discussion forums stay a topic table. Read it through entity_forum_forum_topic_list_view(), which falls back to the default if the named view has since been deleted.',
       ),
       'listed' => array(
         'type' => 'int',
         'size' => 'tiny',
         'not null' => TRUE,
         'default' => 1,
-        'description' => 'Whether the forum appears in the forums index and sub-forum lists. Unlisted forums stay fully usable at their own URL (forum/N) — for forums featured under their own menu link. Independent of status (published).',
+        'description' => 'Whether the forum appears in the forums index and sub-forum lists. Unlisted forums stay fully usable at their own URL (forum/N) - for forums featured under their own menu link. Independent of status (published).',
       ),
     ),
     'primary key' => array('forum_id'),
@@ -511,7 +511,7 @@ function entity_forum_schema() {
         'length' => 32,
         'not null' => TRUE,
         'default' => 'entity_forum_topic',
-        'description' => 'The topic type (bundle): the machine name of an entity_forum topic type. Never empty — entity_extract_ids() throws on a missing bundle.',
+        'description' => 'The topic type (bundle): the machine name of an entity_forum topic type. Never empty - entity_extract_ids() throws on a missing bundle.',
       ),
       'title' => array(
         'type' => 'varchar',
@@ -627,7 +627,7 @@ function entity_forum_schema() {
         'not null' => TRUE,
         'unsigned' => TRUE,
         'default' => 1,
-        'description' => 'Denormalized count of distinct participants (topic author plus published repliers) — the bbPress "Voices".',
+        'description' => 'Denormalized count of distinct participants (topic author plus published repliers) - the bbPress "Voices".',
       ),
       'attachment_count' => array(
         'type' => 'int',
@@ -664,7 +664,7 @@ function entity_forum_schema() {
         'length' => 32,
         'not null' => TRUE,
         'default' => 'entity_forum_topic',
-        'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in an Events topic is an Events reply, so a site can give it its own fields (an attendee count on an RSVP, say). Never empty — entity_extract_ids() throws on a missing bundle.',
+        'description' => 'The reply type (bundle). Denormalized from its topic, exactly like forum_id: a reply in an Events topic is an Events reply, so a site can give it its own fields (an attendee count on an RSVP, say). Never empty - entity_extract_ids() throws on a missing bundle.',
       ),
       // The reply body is the entity_forum_body field (one instance per topic
       // type, shared with topics), not a column. See entity_forum_add_body_field().
@@ -828,13 +828,13 @@ function entity_forum_schema() {
         'type' => 'varchar',
         'length' => 32,
         'not null' => TRUE,
-        'description' => "What kind of thing the row maps to: usually an Entity Forum entity type, but importers also use their own markers (e.g. 'file', 'user_avatar') for one-time work they must not repeat. This is the column that separates ID spaces — an importer reading two of them (bbPress replies from {wp_posts} and page comments from {wp_comments}, say) gives each its own marker so their IDs cannot collide.",
+        'description' => "What kind of thing the row maps to: usually an Entity Forum entity type, but importers also use their own markers (e.g. 'file', 'user_avatar') for one-time work they must not repeat. This is the column that separates ID spaces - an importer reading two of them (bbPress replies from {wp_posts} and page comments from {wp_comments}, say) gives each its own marker so their IDs cannot collide.",
       ),
       'source_id' => array(
         'type' => 'int',
         'not null' => TRUE,
         'unsigned' => TRUE,
-        'description' => "The record's ID in the source system — a {wp_posts}.ID for the bbPress importer, a nid/tid/cid for a forum/forum_ng converter. Unique within its entity_type, which is what keeps two ID spaces apart.",
+        'description' => "The record's ID in the source system - a {wp_posts}.ID for the bbPress importer, a nid/tid/cid for a forum/forum_ng converter. Unique within its entity_type, which is what keeps two ID spaces apart.",
       ),
       'backdrop_id' => array(
         'type' => 'int',

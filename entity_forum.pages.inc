@@ -39,7 +39,7 @@ function _entity_forum_post_excerpt($entity, $length) {
  *
  * Each ancestor forum (and the deepest forum given) becomes a trail
  * link, so nested forums and topics show their full lineage. Pass the
- * deepest forum to include as a link — on a forum page that is the
+ * deepest forum to include as a link, on a forum page that is the
  * forum's parent (the forum itself is the page title); on a topic page
  * it is the topic's own forum.
  *
@@ -65,7 +65,7 @@ function _entity_forum_set_breadcrumb($deepest_forum_id) {
 }
 
 /**
- * Page callback: a single forum — its subforums and topic list.
+ * Page callback: a single forum, its subforums and topic list.
  *
  * @param EntityForumForum $forum
  *   The forum entity from the URL.
@@ -141,7 +141,7 @@ function entity_forum_forum_page($forum) {
   }
 
   // Topic list: a view display taking the forum ID as its argument, chosen on
-  // the forum (default: the shipped entity_forum_topics view — sticky first,
+  // the forum (default: the shipped entity_forum_topics view, sticky first,
   // then latest activity). Embedded so site builders can adjust the columns at
   // admin/structure/views. Access checks, breadcrumbs, subforums and the
   // "Post new topic" button stay in this page callback.
@@ -157,7 +157,7 @@ function entity_forum_forum_page($forum) {
   }
 
   // Let other modules alter the forum page (the topic list itself is the
-  // entity_forum_topics view — alter that via the Views UI or views hooks).
+  // entity_forum_topics view, alter that via the Views UI or views hooks).
   backdrop_alter('entity_forum_forum_page', $build, $forum);
   return $build;
 }
@@ -199,7 +199,7 @@ function entity_forum_topic_page($topic) {
   _entity_forum_set_breadcrumb((int) $topic->forum_id);
 
   // Node-attached topics are read on their node's page (the comments
-  // replacement) — cross-link it for anyone landing on the topic URL.
+  // replacement), cross-link it for anyone landing on the topic URL.
   if (!empty($topic->node_id) && ($discussion_node = node_load($topic->node_id))) {
     $build['node_link'] = array(
       '#markup' => '<div class="entity-forum-node-link">' . t('This discussion belongs to !link.', array(
@@ -234,7 +234,7 @@ function entity_forum_topic_page($topic) {
     ),
   );
 
-  // Replies and the reply/report actions — shared with the node
+  // Replies and the reply/report actions, shared with the node
   // discussion rendering (comments replacement).
   $build += _entity_forum_topic_replies_build($topic);
 
@@ -261,7 +261,7 @@ function entity_forum_topic_page($topic) {
 function _entity_forum_topic_replies_build($topic) {
   $build = array();
 
-  // Replies, threaded Facebook-style: one visual level — every reply in
+  // Replies, threaded Facebook-style: one visual level, every reply in
   // a chain nests under its thread root, indented once. The pager works
   // on thread roots (50 per page) so a thread is never split across
   // pages. The id/parent map for the whole topic is loaded first (cheap:
@@ -334,7 +334,7 @@ function _entity_forum_topic_replies_build($topic) {
     }
   }
   // Every sibling carries an explicit #weight. element_children() sorts
-  // through backdrop_sort() / array_multisort() — an UNSTABLE sort — as
+  // through backdrop_sort() / array_multisort(), an UNSTABLE sort, as
   // soon as any one sibling has a #weight, which would otherwise scramble
   // the weightless ones and float the replies above the opening post.
   // Keeping them all weighted makes the order deterministic regardless of
@@ -382,7 +382,7 @@ function _entity_forum_topic_replies_build($topic) {
  * Builds the discussion section rendered below a node.
  *
  * The comments replacement: heading with reply count, the topic's
- * opening post when it has one (manually attached topics — the
+ * opening post when it has one (manually attached topics, the
  * auto-created discussion topics have an empty body because the node
  * itself is the opening post), then the shared reply section.
  *
@@ -440,7 +440,7 @@ function entity_forum_node_discussion_build($topic) {
  * Resolves the thread root a reply belongs to.
  *
  * Walks reply_to_id links up until a reply with no (published) parent is
- * reached — that reply is the thread root the whole chain displays
+ * reached, that reply is the thread root the whole chain displays
  * under. A visited guard tolerates corrupt cycles; a dangling or
  * unpublished parent makes the reply a root itself.
  *
@@ -551,7 +551,7 @@ function entity_forum_report_form($form, &$form_state, $type, $entity, $topic) {
 /**
  * Submit handler for entity_forum_report_form().
  *
- * Files the report (one open report per member per post — a duplicate just
+ * Files the report (one open report per member per post, a duplicate just
  * re-confirms) and returns the member to the topic or node page.
  */
 function entity_forum_report_form_submit($form, &$form_state) {
@@ -561,7 +561,7 @@ function entity_forum_report_form_submit($form, &$form_state) {
 
   $report_id = entity_forum_report_create("entity_forum_$type", (int) $entity->id(), $form_state['values']['reason']);
   backdrop_set_message($report_id
-    ? t('Thank you — your report has been sent to the moderators.')
+    ? t('Thank you, your report has been sent to the moderators.')
     : t('You have already reported this post; the moderators will review it.'));
 
   $form_state['redirect'] = entity_forum_topic_discussion_path($topic);
@@ -572,9 +572,8 @@ function entity_forum_report_form_submit($form, &$form_state) {
  *
  * A compact table styled like the subforum rows, with one row per
  * non-empty moderation queue (topics awaiting review, replies awaiting
- * review — reported content joins in a later step), each linking to the
- * moderation page. Non-moderators, and moderators with nothing waiting,
- * get nothing.
+ * review, reported content), each linking to the moderation page.
+ * Non-moderators, and moderators with nothing waiting, get nothing.
  *
  * @return array|null
  *   Render array for the panel, or NULL when there is nothing to show.
@@ -656,8 +655,7 @@ function entity_forum_moderation_page() {
   );
 
   // Replies awaiting review, with their body rendered for reading. The body
-  // is a field now, so load the entities (created ASC) and render it rather
-  // than reading a column.
+  // is a field, so load the entities (created ASC) and render it.
   $reply_ids = db_query('SELECT reply_id FROM {entity_forum_reply} WHERE pending = 1 ORDER BY created ASC')->fetchCol();
   $replies = $reply_ids ? entity_load('entity_forum_reply', $reply_ids) : array();
   $reply_rows = array();
@@ -769,7 +767,7 @@ function _entity_forum_post_admin_links($type, $id, $edit_title = NULL, $delete_
  *
  * Resolve is a token-protected callback link; Edit and Delete act on
  * the REPORTED POST (not the report) and appear when the viewer's
- * entity access allows — deleting the post removes its reports too.
+ * entity access allows, deleting the post removes its reports too.
  *
  * @param object $report
  *   A row from {entity_forum_report}.
@@ -832,7 +830,7 @@ function _entity_forum_moderation_actions($type, $id) {
 /**
  * Page callback: applies a moderation action to a held post.
  *
- * Approve releases the hold — a topic returns to the normal listing, a
+ * Approve releases the hold, a topic returns to the normal listing, a
  * reply is published (statistics and counts refresh through the entity
  * hooks). Keep hidden clears the pending flag only, so the post leaves
  * the queue but stays invisible (admin_only topic / unpublished reply);
@@ -841,7 +839,7 @@ function _entity_forum_moderation_actions($type, $id) {
  *
  * Resolving a report ('resolve' + type 'report') marks the report row
  * resolved with the acting moderator and time; the reported post itself
- * is untouched — act on it via the Edit/Delete links if needed.
+ * is untouched, act on it via the Edit/Delete links if needed.
  *
  * @param string $action
  *   'approve', 'hide' or 'resolve'.
@@ -1026,7 +1024,7 @@ function _entity_forum_render_post($body_html, $uid, $created, $html_id, $links 
  *
  * When the viewer is a moderator and the post has open reports, the
  * post gets a badge (prefix markup linking to the moderation queue)
- * and a highlight class — so reported content is easy to spot inside
+ * and a highlight class, so reported content is easy to spot inside
  * the thread itself. Everyone else gets nothing.
  *
  * @param EntityForumTopic $topic
@@ -1154,8 +1152,7 @@ function entity_forum_topic_toggle_closed($topic) {
  *
  * A lightweight version of the admin topic form: the forum is fixed and
  * moderation controls are hidden. The topic type comes from the forum, so
- * there is nothing to choose — posting looks the same as it did before types
- * existed.
+ * there is nothing to choose.
  *
  * @param EntityForumForum $forum
  *   The forum the topic will be posted in.
@@ -1168,7 +1165,7 @@ function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
     $topic_type = entity_forum_forum_topic_type($forum);
     if (!$topic_type) {
       // A container forum. entity_forum_topic_create_access() already keeps
-      // the route shut, so this is unreachable in normal use — but building
+      // the route shut, so this is unreachable in normal use, but building
       // a bundle-less topic would throw EntityMalformedException, and a
       // blank form is a kinder failure than a fatal.
       $form['container'] = array(
@@ -1192,8 +1189,8 @@ function entity_forum_topic_frontend_form($form, &$form_state, $forum) {
   );
 
   // The body (entity_forum_body) and any other fields a site has attached to
-  // this topic type. The body is a field now, so its widget and text format
-  // are whatever the forum builder configured on the type.
+  // this topic type. The body's widget and text format are whatever the forum
+  // builder configured on the type.
   field_attach_form('entity_forum_topic', $form_state['topic'], $form, $form_state);
   entity_forum_apply_extra_field_weights($form, 'entity_forum_topic', $form_state['topic']->type);
 
@@ -1215,11 +1212,11 @@ function entity_forum_topic_frontend_form_validate($form, &$form_state) {
 /**
  * Submit handler for entity_forum_topic_frontend_form().
  *
- * Topics can be held for moderation — by the member's 'review' posting
+ * Topics can be held for moderation, by the member's 'review' posting
  * status or by another module via hook_entity_forum_post_hold_alter()
  * (see entity_forum_post_hold()): pending + admin_only listing, so the
  * existing visibility machinery hides them until a moderator approves.
- * Held authors are sent back to the forum page — their own topic page
+ * Held authors are sent back to the forum page, their own topic page
  * would deny them access.
  */
 function entity_forum_topic_frontend_form_submit($form, &$form_state) {
@@ -1240,11 +1237,11 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
   $topic->save();
 
   if ($held) {
-    backdrop_set_message(t('Thank you — your topic %title has been received and will appear once a moderator has approved it.', array('%title' => $topic->title)));
+    backdrop_set_message(t('Thank you, your topic %title has been received and will appear once a moderator has approved it.', array('%title' => $topic->title)));
     $form_state['redirect'] = 'forum/' . $topic->forum_id;
   }
   elseif (!$topic->status) {
-    // Unpublished by something other than the moderation hold — another
+    // Unpublished by something other than the moderation hold, another
     // module's presave, say. The author can still view their own topic
     // page, which repeats the notice.
     backdrop_set_message(t('Your topic %title has been saved but is not published yet; it is visible only to you and the moderators.', array('%title' => $topic->title)));
@@ -1262,7 +1259,7 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
  * One reply form, served as its own page from topic/N/reply. Supports
  * threading via a ?reply_to=N query parameter pointing at the reply being
  * answered. Any fields a site has attached to the reply type are always
- * present — there is no cut-down variant to keep in step with this one.
+ * present, there is no cut-down variant to keep in step with this one.
  *
  * @param EntityForumTopic $topic
  *   The topic being replied to.
@@ -1302,7 +1299,7 @@ function entity_forum_reply_frontend_form($form, &$form_state, $topic) {
   }
 
   // The body (entity_forum_body, labelled "Reply") and any other fields a
-  // site has attached to this reply type — its widget and text format are
+  // site has attached to this reply type, its widget and text format are
   // whatever the forum builder configured on the topic type.
   field_attach_form('entity_forum_reply', $form_state['reply'], $form, $form_state);
   entity_forum_apply_extra_field_weights($form, 'entity_forum_reply', $form_state['reply']->type);
@@ -1332,9 +1329,9 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $reply = $form_state['reply'];
   $reply->reply_to_id = (int) $values['reply_to_id'];
   // Move the field values (including the body) onto the entity BEFORE the
-  // hold decision — see the topic submit for why.
+  // hold decision, see the topic submit for why.
   field_attach_submit('entity_forum_reply', $reply, $form, $form_state);
-  // Replies can be held for moderation — by the member's 'review'
+  // Replies can be held for moderation, by the member's 'review'
   // posting status or by another module via
   // hook_entity_forum_post_hold_alter(): pending + unpublished,
   // invisible everywhere (topic page, stats, counts) until a moderator
@@ -1349,11 +1346,11 @@ function entity_forum_reply_frontend_form_submit($form, &$form_state) {
   $reply->save();
 
   backdrop_set_message($held
-    ? t('Thank you — your reply has been received and will appear once a moderator has approved it.')
+    ? t('Thank you, your reply has been received and will appear once a moderator has approved it.')
     : t('Your reply has been posted.'));
 
   // A held reply is not visible, so its #reply-N anchor would not exist
-  // — redirect to the plain page instead. Node-attached discussions
+  //, redirect to the plain page instead. Node-attached discussions
   // return to the node page, normal topics to the topic page.
   $redirect_path = entity_forum_topic_discussion_path($topic);
   $redirect_options = $held ? array() : array('fragment' => 'reply-' . $reply->id());
@@ -1432,7 +1429,7 @@ function entity_forum_user_posts_page($account) {
   $build['topics_pager'] = array('#theme' => 'pager', '#element' => 0);
 
   // Replies. The body is a field, so load this page's reply entities and read
-  // the body from them for the excerpt link (the column is gone).
+  // the body from them for the excerpt link.
   $replies = db_select('entity_forum_reply', 'r')
     ->extend('PagerDefault')
     ->fields('r', array('reply_id', 'topic_id', 'created', 'status', 'pending'))
@@ -1487,7 +1484,7 @@ function entity_forum_posting_name_form($form, &$form_state, $account) {
   $form['entity_forum_posting_name'] = array(
     '#type' => 'textfield',
     '#title' => t('Forum posting name'),
-    '#description' => t('Shown as your name on forum posts instead of your account name — use a handle if you prefer. Leave empty to use your account name.'),
+    '#description' => t('Shown as your name on forum posts instead of your account name, use a handle if you prefer. Leave empty to use your account name.'),
     '#default_value' => isset($account->data['entity_forum_posting_name']) ? $account->data['entity_forum_posting_name'] : '',
     '#maxlength' => 60,
   );
@@ -1517,7 +1514,7 @@ function entity_forum_posting_name_form($form, &$form_state, $account) {
       '#title' => t('Posting status'),
       '#options' => entity_forum_posting_status_options(),
       '#default_value' => entity_forum_user_posting_status($account),
-      '#description' => t('Moderation setting — visible to moderators only. Posts already held for review stay in the moderation queue when the status returns to normal.'),
+      '#description' => t('Moderation setting, visible to moderators only. Posts already held for review stay in the moderation queue when the status returns to normal.'),
     );
   }
 
@@ -1533,7 +1530,7 @@ function entity_forum_posting_name_form($form, &$form_state, $account) {
  * Submit handler for entity_forum_posting_name_form().
  *
  * Saves the forum picture (entity_forum_avatar_save() handles the
- * managed-file bookkeeping), then the posting name — which also
+ * managed-file bookkeeping), then the posting name, which also
  * refreshes the author_name snapshots on the member's existing posts via
  * entity_forum_posting_name_save().
  */
@@ -1551,7 +1548,7 @@ function entity_forum_posting_name_form_submit($form, &$form_state) {
  * Renders a forum description through its text format.
  *
  * Accepts an entity or a plain DB row, since the forums index and sub-forum
- * lists work from light queries rather than loaded entities — both must
+ * lists work from light queries rather than loaded entities, both must
  * select description_format alongside description.
  *
  * A description saved before formats existed, or one from a row that somehow

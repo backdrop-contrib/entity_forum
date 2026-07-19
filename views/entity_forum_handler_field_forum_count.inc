@@ -10,7 +10,7 @@
  *
  * All values come from the cached counts map (entity_forum_forum_counts()),
  * so a forums-list View with any number of rows costs the two grouped
- * queries that build the map once — never a count query per row. Which
+ * queries that build the map once, never a count query per row. Which
  * value to show is set by the 'count key' in the Views field definition;
  * 'is date' marks the last-activity field so it offers a date format.
  */
