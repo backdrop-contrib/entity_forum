@@ -4,7 +4,7 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
-## 1.0.0-beta1 (unreleased)
+## 1.0.0-beta1 (2026-07-19)
 
 First public beta: a complete, fieldable forum for Backdrop CMS built on
 custom entities (forums, topics, replies), replacing an imported bbPress
