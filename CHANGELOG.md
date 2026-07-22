@@ -15,6 +15,9 @@ descriptions.
   in its own column so descriptions never wrap under it. Adds `icon_fid` and
   `icon_style` columns (`entity_forum_update_1000/1001()`) with full file-usage
   bookkeeping.
+- Refined the shipped Forums and Topics views (column labels, Sticky/Closed
+  markers, an attachment indicator and CSS-class wrappers for styling). Edited
+  in the Views UI and folded back in as the module defaults.
 
 ## 1.0.0-beta1 (2026-07-19)
 

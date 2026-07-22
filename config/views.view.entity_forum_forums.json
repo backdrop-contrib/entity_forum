@@ -1,8 +1,8 @@
 {
     "_config_name": "views.view.entity_forum_forums",
     "name": "entity_forum_forums",
-    "module": "entity_forum",
     "description": "The public forums index, shown as an indented hierarchy with a moderator panel above. Provides the /forums page; columns and filters are site-builder editable here.",
+    "module": "entity_forum",
     "tag": "entity_forum",
     "disabled": false,
     "base_table": "entity_forum_forum",
@@ -36,47 +36,43 @@
                 },
                 "style_plugin": "entity_forum_forum_hierarchy",
                 "style_options": {
+                    "row_class": "",
+                    "default_row_class": 1,
+                    "row_class_special": 1,
+                    "override": 1,
+                    "append_original_sort": 0,
+                    "sticky": 0,
+                    "caption": "",
+                    "summary": "",
                     "columns": {
                         "forum_link": "forum_link",
                         "topic_count": "topic_count",
                         "forum_last_active": "forum_last_active"
                     },
-                    "default": -1,
                     "info": {
                         "forum_link": {
-                            "sortable": 0,
-                            "default_sort_order": "asc",
                             "align": "",
                             "separator": "",
                             "empty_column": 0,
                             "responsive": ""
                         },
                         "topic_count": {
-                            "sortable": 0,
-                            "default_sort_order": "asc",
-                            "align": "",
+                            "align": "views-align-center",
                             "separator": "",
                             "empty_column": 0,
                             "responsive": ""
                         },
                         "forum_last_active": {
-                            "sortable": 0,
-                            "default_sort_order": "asc",
                             "align": "",
                             "separator": "",
                             "empty_column": 0,
                             "responsive": ""
                         }
                     },
-                    "override": 1,
-                    "sticky": 0,
-                    "order": "asc",
-                    "caption": "",
-                    "summary": "",
+                    "default": "-1",
                     "empty_table": 0,
-                    "responsive": "",
                     "indent_field": "forum_link",
-                    "indent_width": 24
+                    "indent_width": "24"
                 },
                 "row_plugin": "fields",
                 "row_options": {
@@ -118,17 +114,39 @@
                         "id": "topic_count",
                         "table": "entity_forum_forum",
                         "field": "topic_count",
-                        "label": "Topics",
-                        "alter": {
-                            "alter_text": 0,
-                            "make_link": 0,
-                            "trim": 0,
-                            "html": 0
-                        },
                         "relationship": "none",
                         "group_type": "group",
                         "ui_name": "",
+                        "label": "Topics",
                         "exclude": 0,
+                        "alter": {
+                            "alter_text": 1,
+                            "text": "<p class=\"forum-topic-count\">[topic_count]</p>",
+                            "make_link": 0,
+                            "path": "",
+                            "absolute": 0,
+                            "external": 0,
+                            "replace_spaces": 0,
+                            "path_case": "none",
+                            "trim_whitespace": 0,
+                            "alt": "",
+                            "rel": "",
+                            "link_class": "",
+                            "prefix": "",
+                            "suffix": "",
+                            "target": "",
+                            "nl2br": 0,
+                            "max_length": "",
+                            "word_boundary": 1,
+                            "ellipsis": 1,
+                            "more_link": 0,
+                            "more_link_text": "",
+                            "more_link_path": "",
+                            "strip_tags": 0,
+                            "trim": 0,
+                            "preserve_tags": "",
+                            "html": 0
+                        },
                         "element_type": "",
                         "element_class": "",
                         "element_label_type": "",
@@ -146,18 +164,39 @@
                         "id": "forum_last_active",
                         "table": "entity_forum_forum",
                         "field": "forum_last_active",
-                        "label": "Last activity",
-                        "alter": {
-                            "alter_text": 0,
-                            "make_link": 0,
-                            "trim": 0,
-                            "html": 0
-                        },
-                        "date_format": "short",
                         "relationship": "none",
                         "group_type": "group",
                         "ui_name": "",
+                        "label": "Last active",
                         "exclude": 0,
+                        "alter": {
+                            "alter_text": 0,
+                            "text": "",
+                            "make_link": 0,
+                            "path": "",
+                            "absolute": 0,
+                            "external": 0,
+                            "replace_spaces": 0,
+                            "path_case": "none",
+                            "trim_whitespace": 0,
+                            "alt": "",
+                            "rel": "",
+                            "link_class": "",
+                            "prefix": "",
+                            "suffix": "",
+                            "target": "",
+                            "nl2br": 0,
+                            "max_length": "",
+                            "word_boundary": 1,
+                            "ellipsis": 1,
+                            "more_link": 0,
+                            "more_link_text": "",
+                            "more_link_path": "",
+                            "strip_tags": 0,
+                            "trim": 0,
+                            "preserve_tags": "",
+                            "html": 0
+                        },
                         "element_type": "",
                         "element_class": "",
                         "element_label_type": "",
@@ -169,7 +208,8 @@
                         "empty": "",
                         "hide_empty": 0,
                         "empty_zero": 0,
-                        "hide_alter_empty": 1
+                        "hide_alter_empty": 1,
+                        "date_format": "short"
                     }
                 },
                 "filters": {
@@ -256,7 +296,11 @@
                     "context": 0,
                     "context_only_inline": 0
                 },
-                "display_comment": "The public /forums index. Private forums are hidden by entity_forum_views_query_alter() (no visibility filter here). The moderation panel is the header area handler, shown only to moderators. entity_forum_views_pre_render() attaches css/entity_forum.css."
+                "display_comment": "The public /forums index. Private forums are hidden by entity_forum_views_query_alter() (no visibility filter here). The moderation panel is the header area handler, shown only to moderators. entity_forum_views_pre_render() attaches css/entity_forum.css.",
+                "query": {
+                    "type": "views_query",
+                    "options": []
+                }
             }
         }
     }
