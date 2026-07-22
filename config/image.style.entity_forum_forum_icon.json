@@ -1,0 +1,15 @@
+{
+    "_config_name": "image.style.entity_forum_forum_icon",
+    "label": "Forum icon",
+    "name": "entity_forum_forum_icon",
+    "effects": [
+        {
+            "name": "image_scale_and_crop",
+            "data": {
+                "width": 48,
+                "height": 48
+            },
+            "weight": 1
+        }
+    ]
+}

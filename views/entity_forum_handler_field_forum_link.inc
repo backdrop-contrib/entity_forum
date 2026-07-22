@@ -33,7 +33,7 @@ class entity_forum_handler_field_forum_link extends views_handler_field {
   function query() {
     $this->ensure_my_table();
     $this->field_alias = $this->query->add_field($this->table_alias, $this->real_field);
-    foreach (array('title', 'visibility', 'description', 'description_format') as $column) {
+    foreach (array('title', 'visibility', 'description', 'description_format', 'icon_fid', 'icon_style') as $column) {
       $this->parts[$column] = $this->query->add_field($this->table_alias, $column);
     }
     $this->add_additional_fields();
@@ -75,16 +75,24 @@ class entity_forum_handler_field_forum_link extends views_handler_field {
       $title .= ' <span class="entity-forum-private">' . t('(private)') . '</span>';
     }
 
-    $out = '<div class="entity-forum-title">' . $title;
+    // The icon renders at the forum's own image style (icon_style), so a
+    // top-level forum can carry a large icon here too.
+    $icon = entity_forum_format_forum_icon($this->part($values, 'icon_fid'), $this->part($values, 'icon_style'));
+    if ($icon !== '') {
+      $icon = '<span class="entity-forum-icon">' . $icon . '</span>';
+    }
+
+    // Title + description share their own column beside the icon (a flex row),
+    // so a tall icon never makes the description wrap underneath it.
+    $text = $title;
     $description = $this->part($values, 'description');
     if ($description !== '') {
       $format = $this->part($values, 'description_format');
       $format = $format !== '' ? $format : filter_default_format();
-      $out .= '<div class="entity-forum-description">' . check_markup($description, $format) . '</div>';
+      $text .= '<div class="entity-forum-description">' . check_markup($description, $format) . '</div>';
     }
-    $out .= '</div>';
 
-    return $out;
+    return '<div class="entity-forum-title">' . $icon . '<div class="entity-forum-title-text">' . $text . '</div></div>';
   }
 
 }

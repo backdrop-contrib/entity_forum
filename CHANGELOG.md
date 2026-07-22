@@ -4,6 +4,18 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
+## (unreleased)
+
+- Forum icons: each forum shows an icon beside its name in the forums index,
+  sub-forum lists and at the top of its page. Upload one per forum
+  (PNG/JPG/GIF/SVG) on the edit form, or use the shipped default. Each forum
+  also picks the image style (size) its icon renders at, everywhere it appears
+  — a top-level forum can go large, sub-forums stay small (suggested, not
+  forced); a "Forum icon (large)" 80×80 style ships ready-made. The icon sits
+  in its own column so descriptions never wrap under it. Adds `icon_fid` and
+  `icon_style` columns (`entity_forum_update_1000/1001()`) with full file-usage
+  bookkeeping.
+
 ## 1.0.0-beta1 (2026-07-19)
 
 First public beta: a complete, fieldable forum for Backdrop CMS built on

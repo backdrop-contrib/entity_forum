@@ -1,0 +1,15 @@
+{
+    "_config_name": "image.style.entity_forum_forum_icon_large",
+    "label": "Forum icon (large)",
+    "name": "entity_forum_forum_icon_large",
+    "effects": [
+        {
+            "name": "image_scale_and_crop",
+            "data": {
+                "width": 80,
+                "height": 80
+            },
+            "weight": 1
+        }
+    ]
+}

@@ -81,9 +81,23 @@ function entity_forum_forum_page($forum) {
   // page title, so it is not repeated as a trail link).
   _entity_forum_set_breadcrumb((int) $forum->parent_id);
 
-  if (!empty($forum->description)) {
-    $build['description'] = array(
-      '#markup' => '<div class="entity-forum-description">' . _entity_forum_format_description($forum) . '</div>',
+  // Header: the forum's icon (at its chosen image style) on the left, with the
+  // description in its own column beside it - a flex row, so a large icon never
+  // makes the description wrap underneath it. The forum title is the themed
+  // page <h1> (outside this render array), so this leads the page body.
+  $icon = entity_forum_format_forum_icon($forum->icon_fid, $forum->icon_style);
+  $description = !empty($forum->description)
+    ? '<div class="entity-forum-description">' . _entity_forum_format_description($forum) . '</div>'
+    : '';
+  if ($icon !== '' || $description !== '') {
+    $inner = '';
+    if ($icon !== '') {
+      $inner .= '<div class="entity-forum-page-icon">' . $icon . '</div>';
+    }
+    $inner .= '<div class="entity-forum-page-header-text">' . $description . '</div>';
+    $build['header'] = array(
+      '#markup' => '<div class="entity-forum-page-header">' . $inner . '</div>',
+      '#weight' => -30,
     );
   }
 
@@ -95,7 +109,7 @@ function entity_forum_forum_page($forum) {
   // Sub-forums, if any: full rows with topic/post counts and last
   // activity (rolled up to include their own sub-forums), matching the
   // forums index rather than a plain bullet list.
-  $subforums = db_query('SELECT forum_id, title, description, description_format, visibility FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 AND listed = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
+  $subforums = db_query('SELECT forum_id, title, description, description_format, visibility, icon_fid, icon_style FROM {entity_forum_forum} WHERE parent_id = :id AND status = 1 AND listed = 1 ORDER BY weight, title', array(':id' => $forum->id()))->fetchAll();
   $counts = entity_forum_forum_counts();
   $subforum_rows = array();
   foreach ($subforums as $subforum) {
@@ -106,11 +120,17 @@ function entity_forum_forum_page($forum) {
     if ($subforum->visibility === 'private') {
       $title .= ' <span class="entity-forum-private">' . t('(private)') . '</span>';
     }
-    $cell = '<div class="entity-forum-title">' . $title;
-    if (!empty($subforum->description)) {
-      $cell .= '<div class="entity-forum-description">' . _entity_forum_format_description($subforum) . '</div>';
+    // Icon at the sub-forum's chosen style, in its own column beside the
+    // title + description (matching the forums index cell).
+    $icon = entity_forum_format_forum_icon($subforum->icon_fid, $subforum->icon_style);
+    if ($icon !== '') {
+      $icon = '<span class="entity-forum-icon">' . $icon . '</span>';
     }
-    $cell .= '</div>';
+    $text = $title;
+    if (!empty($subforum->description)) {
+      $text .= '<div class="entity-forum-description">' . _entity_forum_format_description($subforum) . '</div>';
+    }
+    $cell = '<div class="entity-forum-title">' . $icon . '<div class="entity-forum-title-text">' . $text . '</div></div>';
     $sc = isset($counts[$subforum->forum_id]) ? $counts[$subforum->forum_id] : array('topic_count' => 0, 'post_count' => 0, 'last_active_time' => 0);
     $subforum_rows[] = array(
       $cell,

@@ -3,7 +3,10 @@
  */
 
 :root {
+    --tr3oc-purple: #3a2a6b;
     --warningred: red;
+    --color-counters: rgb(240,240,240);
+    --color-counters-shadow: rgb(220,220,220);
 }
 
 .entity-forum-private {
@@ -14,6 +17,52 @@
  * plugin also sets an inline padding-left, so this is a themer override seam. */
 .entity-forum-hierarchy-indent {
     display: inline-block;
+}
+
+.entity-forum-title-text a {
+    font-size: 1.3em;
+}
+
+p.forum-topic-started,
+p.forum-topic-last-active {
+    font-size: 9px;
+    white-space: nowrap;
+    margin: 0;
+}
+
+.forum-topic-count,
+.forum-voices-count,
+.forum-replies-count {
+    background-color: var(--color-counters);
+    padding: 10px;
+    border-radius: 6px;
+    box-shadow: 3px 3px 3px var(--color-counters-shadow);
+    max-width: 4em;
+    margin: auto;
+}
+
+.view-entity-forum-topics td,
+.view-entity-forum-forums td {
+    border-color: lightgray;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    padding: 4px;
+}
+
+.forum-topic-content img {
+    float: right;
+    border-radius: 6px;
+    box-shadow: 3px 3px 3px var(--color-counters-shadow);
+    margin: 0 5px;
+}
+
+.forum-topic-content p {
+    margin-bottom: 0;
+}
+
+.forum-topic-content a {
+    font-size: 1.3em;
 }
 
 /*-----Private group forum styles ---------------------------*/
@@ -35,10 +84,12 @@
 
 /* Small pictures beside names in the topic-list view. */
 .entity-forum-topics .entity-forum-avatar-img {
-  display: inline-block;
-  vertical-align: middle;
-  margin-right: 4px;
-  border-radius: 2px;
+display: inline-block;
+    vertical-align: middle;
+    border-radius: 100px;
+    box-shadow: 3px 3px 3px gray;
+    margin: 4px;
+    border: 2px solid lightgrey;
 }
 
 /* Current picture preview on the account Forum tab. */
@@ -48,6 +99,44 @@
 
 .entity-forum-content {
     min-height: 4em;
+}
+
+/* Forum identity cell (index + sub-forum lists): icon in its own column,
+   title + description in a second column, so a tall icon never makes the
+   description wrap underneath it. */
+.entity-forum-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.entity-forum-icon {
+    flex: 0 0 auto;
+}
+.entity-forum-title-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.entity-forum-icon-img {
+    display: block;
+    border-radius: 4px;
+}
+/* Forum page header: the icon (at its chosen size) on the left, description
+   in its own column beside it - same two-column idea as the list cell. */
+.entity-forum-page-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 1em;
+}
+.entity-forum-page-icon {
+    flex: 0 0 auto;
+}
+.entity-forum-page-header-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.entity-forum-page-icon .entity-forum-icon-img {
+    border-radius: 6px;
 }
 
 /*-----Sub-forum rows ------------------------------*/

@@ -3074,6 +3074,109 @@ function entity_forum_format_default_avatar($style = 'entity_forum_avatar') {
 }
 
 /**
+ * Renders a forum's icon.
+ *
+ * A forum with an uploaded icon shows it; a forum without one falls back to
+ * the module's shipped default SVG, so every forum carries an icon. SVGs (the
+ * shipped default, or an uploaded .svg) cannot pass through an image style, so
+ * they are rendered at the chosen style's pixel dimensions; raster icons go
+ * through the style. The default carries an extra `entity-forum-icon-default`
+ * class so a theme can restyle or hide it.
+ *
+ * @param int $fid
+ *   The forum's icon file ID (0 = none; the shipped default is used).
+ * @param string $style
+ *   Image style to render raster icons with, and to size SVGs to. Empty (or a
+ *   style that no longer exists) falls back to the shipped small
+ *   entity_forum_forum_icon style, so callers can pass a forum's stored
+ *   icon_style straight through.
+ * @param string $alt
+ *   Alt text (usually the forum title). Decorative beside a linked title,
+ *   so callers may pass ''.
+ *
+ * @return string
+ *   Image markup (never empty — a forum without an icon gets the default).
+ */
+function entity_forum_format_forum_icon($fid, $style = '', $alt = '') {
+  // Empty or deleted style => the shipped small default.
+  if ($style === '' || $style === NULL || !image_style_load($style)) {
+    $style = 'entity_forum_forum_icon';
+  }
+  $attributes = array('class' => array('entity-forum-icon-img'));
+
+  $fid = (int) $fid;
+  $file = $fid ? file_load($fid) : FALSE;
+  $is_svg = $file && backdrop_strtolower(pathinfo($file->uri, PATHINFO_EXTENSION)) === 'svg';
+
+  // No uploaded icon, or an uploaded SVG: render an SVG at the style's pixel
+  // size, since SVGs cannot be processed by an image style.
+  if (!$file || $is_svg) {
+    if ($file) {
+      $uri = $file->uri;
+    }
+    else {
+      $uri = backdrop_get_path('module', 'entity_forum') . '/images/forum-icon-default-discussion.svg';
+      $attributes['class'][] = 'entity-forum-icon-default';
+    }
+    $size = 48;
+    if (($style_info = image_style_load($style)) && !empty($style_info['effects'])) {
+      $effect = reset($style_info['effects']);
+      if (!empty($effect['data']['width'])) {
+        $size = (int) $effect['data']['width'];
+      }
+    }
+    return theme('image', array(
+      'uri' => $uri,
+      'alt' => $alt,
+      'width' => $size,
+      'height' => $size,
+      'attributes' => $attributes,
+    ));
+  }
+
+  return theme('image_style', array(
+    'style_name' => $style,
+    'uri' => $file->uri,
+    'alt' => $alt,
+    'attributes' => $attributes,
+  ));
+}
+
+/**
+ * Applies managed-file bookkeeping for a forum icon.
+ *
+ * Marks a newly chosen icon permanent and records its usage (type
+ * 'forum_icon', keyed on the forum ID); releases and deletes the file it
+ * replaces or clears. A no-op when the icon is unchanged. Mirrors
+ * entity_forum_avatar_save() for the per-forum icon.
+ *
+ * @param int $forum_id
+ *   The forum the icon belongs to (the file-usage key).
+ * @param int $old_fid
+ *   The previously stored icon file ID (0 = none).
+ * @param int $new_fid
+ *   The newly chosen icon file ID (0 = cleared).
+ */
+function entity_forum_forum_icon_apply($forum_id, $old_fid, $new_fid) {
+  $forum_id = (int) $forum_id;
+  $old_fid = (int) $old_fid;
+  $new_fid = (int) $new_fid;
+  if ($old_fid === $new_fid) {
+    return;
+  }
+
+  if ($new_fid && ($file = file_load($new_fid))) {
+    $file->status = FILE_STATUS_PERMANENT;
+    file_save($file);
+    file_usage_add($file, 'entity_forum', 'forum_icon', $forum_id);
+  }
+  if ($old_fid && ($old_file = file_load($old_fid))) {
+    file_usage_delete($old_file, 'entity_forum', 'forum_icon', $forum_id);
+    file_delete($old_file->fid);
+  }
+}
+
+/**
  * Saves (or clears) a member's forum picture.
  *
  * Handles the managed-file bookkeeping: marks a new file permanent and
@@ -3355,6 +3458,14 @@ function entity_forum_entity_update($entity, $type) {
 function entity_forum_entity_delete($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
+  }
+  // Release a deleted forum's icon file. Cascade sub-tree deletes run through
+  // the entity controller (entity_forum_forum_delete_forums()), so each
+  // removed forum comes back through this hook and drops its own icon.
+  if ($type === 'entity_forum_forum' && !empty($entity->icon_fid)
+    && ($icon = file_load((int) $entity->icon_fid))) {
+    file_usage_delete($icon, 'entity_forum', 'forum_icon', (int) $entity->id());
+    file_delete($icon->fid);
   }
   // Reports about a deleted post are moot, remove them. Topic deletion
   // cascades to replies below, and each cascaded reply delete comes back

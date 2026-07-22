@@ -63,6 +63,46 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
     '#options' => array(0 => t('- None -')) + entity_forum_forum_options($forum->id()),
     '#default_value' => $forum->parent_id,
   );
+
+  // Icon controls sit right after the parent selector, because the sensible
+  // icon size depends on whether this is a top-level forum or a sub-forum.
+  $form['icon_fid'] = array(
+    '#type' => 'managed_file',
+    '#title' => t('Icon'),
+    '#description' => t('An optional icon shown beside the forum name in the forums index, sub-forum lists and at the top of the forum page. Leave empty for no icon. PNG, JPG, GIF or SVG.'),
+    '#default_value' => (int) $forum->icon_fid,
+    '#upload_location' => 'public://entity_forum',
+    '#upload_validators' => array(
+      'file_validate_extensions' => array('png jpg jpeg gif svg'),
+    ),
+  );
+
+  // Per-forum icon image style, used wherever this forum's icon appears (index,
+  // sub-forum lists and its own page). Any image style on the site is offered;
+  // empty follows the shipped small style. Nothing is forced: a top-level forum
+  // is free to use a large style to stand out, a sub-forum is best kept small
+  // but may pick anything and be tidied up with CSS. The icon renders at
+  // whatever the chosen style produces - no separate "size" setting.
+  $icon_style_options = array('' => t('- Default (small) -'));
+  foreach (image_styles() as $name => $style_info) {
+    $icon_style_options[$name] = isset($style_info['label']) ? $style_info['label'] : $name;
+  }
+  $form['icon_style'] = array(
+    '#type' => 'select',
+    '#title' => t('Icon size'),
+    '#options' => $icon_style_options,
+    '#default_value' => isset($icon_style_options[$forum->icon_style]) ? $forum->icon_style : '',
+    '#description' => t('The image style the icon is shown at, everywhere this forum appears. A <strong>top-level forum</strong> can use a large style like <em>Forum icon (large)</em> to stand out. For a <strong>sub-forum</strong>, the small <em>Default</em> usually sits better in lists - but you are free to choose any style and fine-tune the result with CSS. Create your own sizes at <a href="@styles">the image styles page</a>.', array(
+      '@styles' => url('admin/config/media/image-styles'),
+    )),
+  );
+  // Say so rather than silently reverting to Default: the size this forum has
+  // been rendering at is not the one it will use after saving.
+  if ($forum->icon_style !== '' && !isset($icon_style_options[$forum->icon_style])) {
+    $form['icon_style']['#description'] .= ' <strong>' . t('This forum was set to the %style style, which no longer exists - it is falling back to the default.', array(
+      '%style' => $forum->icon_style,
+    )) . '</strong>';
+  }
   $form['visibility'] = array(
     '#type' => 'select',
     '#title' => t('Visibility'),
@@ -189,9 +229,15 @@ function entity_forum_forum_form_submit($form, &$form_state) {
   $values = $form_state['values'];
 
   $is_new = $forum->isNew();
+  // Read the stored icon before overwriting it, so the managed-file
+  // bookkeeping below can release the file that is being replaced or cleared.
+  $old_icon_fid = (int) $forum->icon_fid;
+  $new_icon_fid = (int) $values['icon_fid'];
   $forum->title = $values['title'];
   $forum->description = $values['description']['value'];
   $forum->description_format = $values['description']['format'];
+  $forum->icon_fid = $new_icon_fid;
+  $forum->icon_style = $values['icon_style'];
   $forum->parent_id = (int) $values['parent_id'];
   $forum->visibility = $values['visibility'];
   $forum->weight = (int) $values['weight'];
@@ -203,6 +249,11 @@ function entity_forum_forum_form_submit($form, &$form_state) {
   $forum->changed = REQUEST_TIME;
   field_attach_submit('entity_forum_forum', $forum, $form, $form_state);
   $forum->save();
+
+  // After save, so a brand-new forum already has the ID the file usage is
+  // keyed on. Makes the new file permanent + adds its usage, and releases the
+  // replaced/cleared one.
+  entity_forum_forum_icon_apply($forum->id(), $old_icon_fid, $new_icon_fid);
 
   backdrop_set_message($is_new
     ? t('Forum %title has been created.', array('%title' => $forum->title))

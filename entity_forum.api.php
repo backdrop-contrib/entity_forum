@@ -20,15 +20,16 @@
  * Alter a forum page ("forum/N") before it is rendered.
  *
  * @param array $build
- *   The page render array: 'description', 'subforums', 'new_topic'
- *   (the Post new topic link) and 'topics' (the topic list view display this
- *   forum uses, entity_forum_forum_topic_list_view() resolves which).
+ *   The page render array: 'header' (the forum icon + description, side by
+ *   side), 'subforums', 'new_topic' (the Post new topic link) and 'topics'
+ *   (the topic list view display this forum uses,
+ *   entity_forum_forum_topic_list_view() resolves which).
  * @param EntityForumForum $forum
  *   The forum being viewed.
  */
 function hook_entity_forum_forum_page_alter(&$build, $forum) {
   if ($forum->visibility === 'private') {
-    unset($build['description']);
+    unset($build['header']);
   }
 }
 

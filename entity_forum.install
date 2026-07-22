@@ -362,6 +362,8 @@ function entity_forum_uninstall() {
     'entity_forum.settings',
     'image.style.entity_forum_avatar',
     'image.style.entity_forum_avatar_small',
+    'image.style.entity_forum_forum_icon',
+    'image.style.entity_forum_forum_icon_large',
     'views.view.entity_forum_topics',
     'views.view.entity_forum_topics_admin',
     'views.view.entity_forum_forums_admin',
@@ -374,6 +376,44 @@ function entity_forum_uninstall() {
   }
   foreach ($names as $name) {
     config($name)->delete();
+  }
+}
+
+/**
+ * Adds the forum icon column (icon_fid).
+ *
+ * A forum can carry an uploaded icon shown beside its name in the index,
+ * sub-forum lists and at the top of the forum page. The icon is a managed
+ * file referenced by this column; existing forums start with no icon (0).
+ */
+function entity_forum_update_1000() {
+  if (!db_field_exists('entity_forum_forum', 'icon_fid')) {
+    db_add_field('entity_forum_forum', 'icon_fid', array(
+      'type' => 'int',
+      'not null' => TRUE,
+      'unsigned' => TRUE,
+      'default' => 0,
+      'description' => "The {file_managed}.fid of the forum's icon (0 = none).",
+    ));
+  }
+}
+
+/**
+ * Adds the per-forum icon image style column (icon_style).
+ *
+ * Lets a forum show its icon at a chosen image style on its own page header
+ * (e.g. a large left-hand icon for a featured forum). Existing forums start
+ * empty, meaning the shipped small style.
+ */
+function entity_forum_update_1001() {
+  if (!db_field_exists('entity_forum_forum', 'icon_style')) {
+    db_add_field('entity_forum_forum', 'icon_style', array(
+      'type' => 'varchar',
+      'length' => 255,
+      'not null' => TRUE,
+      'default' => '',
+      'description' => "Image style for the icon on the forum's own page header (empty = shipped small style).",
+    ));
   }
 }
 
@@ -407,6 +447,20 @@ function entity_forum_schema() {
         'length' => 255,
         'not null' => FALSE,
         'description' => 'Text format machine name for the description, so a forum description can carry markup like any other rich text.',
+      ),
+      'icon_fid' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'unsigned' => TRUE,
+        'default' => 0,
+        'description' => "The {file_managed}.fid of the forum's icon (0 = none). Shown beside the forum name in the index, sub-forum lists and at the top of the forum page. A managed file with a {file_usage} record (type 'forum_icon', id = forum_id), released when the icon is replaced or the forum is deleted.",
+      ),
+      'icon_style' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => "Image style the icon is shown at on the forum's OWN page header, so a featured forum can carry a large left-hand icon while ordinary forums stay small. Empty = the shipped entity_forum_forum_icon (small) style. Forum listings always use the small style for a tidy overview. Resolved through entity_forum_format_forum_icon(), which falls back to the shipped style if the named one has since been deleted.",
       ),
       'status' => array(
         'type' => 'int',

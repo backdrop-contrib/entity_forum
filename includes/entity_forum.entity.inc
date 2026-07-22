@@ -41,6 +41,31 @@ class EntityForumForum extends Entity {
   public $description_format;
 
   /**
+   * The {file_managed}.fid of the forum's icon (0 = none).
+   *
+   * An uploaded image shown beside the forum name in the index, sub-forum
+   * lists and at the top of the forum page. Managed-file bookkeeping (a
+   * {file_usage} record keyed 'forum_icon'/forum_id, released on replace or
+   * forum delete) is handled in entity_forum_forum_icon_apply().
+   *
+   * @var int
+   */
+  public $icon_fid = 0;
+
+  /**
+   * Image style for the icon on this forum's OWN page header.
+   *
+   * Empty means the shipped small entity_forum_forum_icon style — so a plain
+   * forum stays small while a featured forum can carry a large left-hand icon.
+   * Forum listings always render the small style regardless. Resolved through
+   * entity_forum_format_forum_icon(), which falls back to the shipped style if
+   * the named one has since been deleted.
+   *
+   * @var string
+   */
+  public $icon_style = '';
+
+  /**
    * Published flag (1 = published, 0 = unpublished).
    * @var int
    */
