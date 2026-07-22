@@ -4,7 +4,23 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
-## (unreleased)
+## 1.0.0-beta3 (unreleased)
+
+- **Stopped shipping the classified image/file fields with File (Field) Paths
+  settings baked in** — the `filefield_paths*` keys are removed from both
+  shipped field instances. Entity Forum already places attachments in tidy,
+  unique, privacy-correct paths; a module that rewrites a file's path or name on
+  save fights the private-forum re-scheme and can leak private files into the
+  public path. Existing installs are unchanged (the keys only ever took effect
+  where filefield_paths was also installed).
+- **README:** added a prominent Limitations warning against modules that rename
+  or relocate managed files (File (Field) Paths the common example) — they can
+  push a private forum's files into the public path (a privacy leak) or collide
+  on the unique names the module and its importer rely on.
+
+## 1.0.0-beta2 (2026-07-22)
+
+Git tag: `1.x-1.0.0-beta2`.
 
 - Forum icons: each forum shows an icon beside its name in the forums index,
   sub-forum lists and at the top of its page. Upload one per forum

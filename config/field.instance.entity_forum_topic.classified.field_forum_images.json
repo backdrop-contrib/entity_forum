@@ -32,28 +32,6 @@
         "alt_field_required": 0,
         "title_field": 1,
         "orientate": 0,
-        "filefield_paths_enabled": 1,
-        "filefield_paths": {
-            "file_path": {
-                "value": "forum/images/topics",
-                "options": {
-                    "slashes": 0,
-                    "path": 0,
-                    "transliterate": 0
-                }
-            },
-            "redirect": 0,
-            "retroactive_update": 0,
-            "active_updating": 0,
-            "file_name": {
-                "value": "[file:ffp-name-only-original].[file:ffp-extension-original]",
-                "options": {
-                    "slashes": 0,
-                    "path": 0,
-                    "transliterate": 0
-                }
-            }
-        },
         "default_image": "",
         "user_register_form": false
     },
