@@ -163,6 +163,22 @@ while either is enabled.
 of the content, so their URLs cannot be gated by forum privacy. Private-forum
 *attachments* (file and image fields) are gated.
 
+> ### ⚠️ Do NOT use modules that rename or relocate managed files
+>
+> Entity Forum keeps each **private** forum's attachments in the **private
+> file system** and automatically moves files between the public and private
+> file paths as a forum's privacy changes — this is the whole point of
+> private-forum gating. A module that rewrites a file's **path or name** when
+> the entity is saved fights this directly. It can force a private forum's
+> files back into the **public** file path, where **anyone who has (or guesses)
+> the URL can read them — a privacy leak** — and its renaming can collide with
+> the unique file names Entity Forum and its importer rely on.
+>
+> [File (Field) Paths](https://backdropcms.org/project/filefield_paths) is the
+> common example. If you run any such module, **disable it on Entity Forum's
+> file and image fields** (untick its per-field option). Entity Forum already
+> organises attachments into tidy, unique, privacy-correct paths on its own.
+
 **CSS styling.** Initial CSS is in place, but there will be gaps where some
 fields or markup do not yet receive styling. If you would like a specific
 class or hook added, please raise an issue in the GitHub issue queue.

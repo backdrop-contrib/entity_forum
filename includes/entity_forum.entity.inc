@@ -123,8 +123,9 @@ class EntityForumForum extends Entity {
 
   /**
    * Whether the forum appears in the forums index and sub-forum lists
-   * (1 = listed). Unlisted forums stay usable at their own URL; this is
-   * independent of $status (published).
+   * (1 = listed). Unlisted forums stay usable at their own URL, and take
+   * their whole sub-tree out of the index with them; this is independent
+   * of $status (published).
    * @var int
    */
   public $listed = 1;
@@ -216,9 +217,13 @@ class EntityForumForum extends Entity {
 
   /**
    * Implements EntityInterface::uri().
+   *
+   * Defers to entity_forum_forum_path(), which is the single definition of
+   * a forum's address - the bulk callers reach it by ID without loading an
+   * entity, and this keeps them and entity_uri() answering the same thing.
    */
   public function uri() {
-    return array('path' => 'forum/' . $this->forum_id);
+    return array('path' => entity_forum_forum_path($this->forum_id));
   }
 
 }

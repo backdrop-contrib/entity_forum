@@ -57,7 +57,7 @@ function _entity_forum_set_breadcrumb($deepest_forum_id) {
     $trail[] = $deepest_forum_id;
     foreach ($trail as $fid) {
       if (isset($titles[$fid])) {
-        $crumbs[] = l($titles[$fid], 'forum/' . $fid);
+        $crumbs[] = l($titles[$fid], entity_forum_forum_path($fid));
       }
     }
   }
@@ -116,7 +116,7 @@ function entity_forum_forum_page($forum) {
     if ($subforum->visibility === 'private' && !entity_forum_user_sees_private()) {
       continue;
     }
-    $title = l($subforum->title, 'forum/' . $subforum->forum_id);
+    $title = l($subforum->title, entity_forum_forum_path($subforum->forum_id));
     if ($subforum->visibility === 'private') {
       $title .= ' <span class="entity-forum-private">' . t('(private)') . '</span>';
     }
@@ -148,9 +148,15 @@ function entity_forum_forum_page($forum) {
     );
   }
 
+  // Carries the same classes as the Views area handler's link
+  // (entity_forum_handler_area_post_link) so one rule in a theme styles the
+  // post link into a button wherever it appears: this page, or a topic list
+  // view that renders the link in its own header.
   if (entity_forum_topic_create_access($forum)) {
     $build['new_topic'] = array(
-      '#markup' => '<div class="entity-forum-actions">' . l(t('Post new topic'), 'forum/' . $forum->id() . '/new-topic') . '</div>',
+      '#markup' => '<div class="entity-forum-actions">' . l(t('Post new topic'), 'forum/' . $forum->id() . '/new-topic', array(
+        'attributes' => array('class' => array('entity-forum-new-topic-link', 'button')),
+      )) . '</div>',
     );
   }
   elseif (user_is_logged_in() && user_access('create entity forum topic')
@@ -1258,7 +1264,7 @@ function entity_forum_topic_frontend_form_submit($form, &$form_state) {
 
   if ($held) {
     backdrop_set_message(t('Thank you, your topic %title has been received and will appear once a moderator has approved it.', array('%title' => $topic->title)));
-    $form_state['redirect'] = 'forum/' . $topic->forum_id;
+    $form_state['redirect'] = entity_forum_forum_path($topic->forum_id);
   }
   elseif (!$topic->status) {
     // Unpublished by something other than the moderation hold, another
