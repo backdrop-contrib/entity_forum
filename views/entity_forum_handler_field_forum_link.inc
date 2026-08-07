@@ -70,7 +70,7 @@ class entity_forum_handler_field_forum_link extends views_handler_field {
       return '';
     }
 
-    $title = l($this->part($values, 'title'), 'forum/' . $forum_id);
+    $title = l($this->part($values, 'title'), entity_forum_forum_path($forum_id));
     if ($this->part($values, 'visibility') === 'private') {
       $title .= ' <span class="entity-forum-private">' . t('(private)') . '</span>';
     }

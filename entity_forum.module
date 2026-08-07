@@ -407,6 +407,7 @@ function entity_forum_autoload_info() {
     'entity_forum_handler_field_forum_count' => 'views/entity_forum_handler_field_forum_count.inc',
     'entity_forum_handler_field_value_label' => 'views/entity_forum_handler_field_value_label.inc',
     'entity_forum_handler_field_forum_link' => 'views/entity_forum_handler_field_forum_link.inc',
+    'entity_forum_handler_field_forum_icon' => 'views/entity_forum_handler_field_forum_icon.inc',
     'entity_forum_handler_area_post_link' => 'views/entity_forum_handler_area_post_link.inc',
     'entity_forum_handler_area_moderation_panel' => 'views/entity_forum_handler_area_moderation_panel.inc',
     'entity_forum_plugin_style_forum_hierarchy' => 'views/entity_forum_plugin_style_forum_hierarchy.inc',
@@ -522,6 +523,24 @@ function entity_forum_views_data_alter(&$data) {
       ENTITY_FORUM_LISTING_NORMAL => t('Listed'),
       ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Moderators only'),
       ENTITY_FORUM_LISTING_UNLISTED => t('Unlisted'),
+    );
+  }
+
+  // The forum icon as a field in its own right. The forums index gets its
+  // icon inside the composite identity cell (it has to indent as one unit),
+  // but every other view wants to place the icon itself - and reach it
+  // through a topic's forum relationship, which is how a classified ads
+  // listing shows the ad's forum icon. See
+  // entity_forum_handler_field_forum_icon.
+  if (isset($data['entity_forum_forum'])) {
+    $data['entity_forum_forum']['icon'] = array(
+      'title' => t('Forum icon'),
+      'help' => t("The forum's icon, at the forum's own image style or one chosen for this view. Forums without an uploaded icon show the shipped default."),
+      'field' => array(
+        'handler' => 'entity_forum_handler_field_forum_icon',
+        'real field' => 'icon_fid',
+        'click sortable' => FALSE,
+      ),
     );
   }
 
@@ -641,6 +660,75 @@ function entity_forum_private_forum_ids() {
 }
 
 /**
+ * Returns the IDs of every unlisted forum AND every forum beneath one.
+ *
+ * "Unlisted" (listed = 0) has to carry its whole sub-tree or it does the
+ * opposite of what it says: the forums index is built with the Forum
+ * hierarchy style, which treats a row whose parent is missing from the
+ * result set as a ROOT, so hiding a container on its own PROMOTES its
+ * children to the top level of the index instead of hiding them. Rolling
+ * the descendants in is what makes "hide this branch from the index" mean
+ * what it reads as, to any depth.
+ *
+ * Unlike entity_forum_private_forum_ids() this IS cached in the cache bin.
+ * That list gates access, where a stale entry would leak content; this one
+ * decides only whether a forum is advertised in an index. An unlisted forum
+ * stays fully viewable at its own URL by anyone with permission, so nothing
+ * here is a confidentiality boundary and a cached copy is safe.
+ *
+ * @return array
+ *   Forum IDs, as integers; empty when no forum is unlisted.
+ */
+function entity_forum_unlisted_forum_ids() {
+  $ids = &backdrop_static(__FUNCTION__);
+  if (isset($ids)) {
+    return $ids;
+  }
+  if ($cached = cache_get('entity_forum_unlisted_forum_ids')) {
+    $ids = $cached->data;
+    return $ids;
+  }
+
+  $ids = array();
+  $unlisted = array_flip(array_map('intval', db_query('SELECT forum_id FROM {entity_forum_forum} WHERE listed = 0')->fetchCol()));
+  if ($unlisted) {
+    // Walk each forum's ancestry rather than expanding descendants, so the
+    // cycle guard in entity_forum_forum_ancestors() covers this too.
+    foreach (array_keys(entity_forum_forum_parents()) as $forum_id) {
+      $forum_id = (int) $forum_id;
+      if (isset($unlisted[$forum_id])) {
+        $ids[] = $forum_id;
+        continue;
+      }
+      foreach (entity_forum_forum_ancestors($forum_id) as $ancestor) {
+        if (isset($unlisted[$ancestor])) {
+          $ids[] = $forum_id;
+          break;
+        }
+      }
+    }
+  }
+
+  cache_set('entity_forum_unlisted_forum_ids', $ids);
+  return $ids;
+}
+
+/**
+ * Clears the cached unlisted-forum set.
+ *
+ * Called whenever a forum changes, since both its listed flag and its place
+ * in the tree feed the rollup. Also resets the parent map the rollup is
+ * built from: that static is populated once per request, so a forum saved
+ * earlier in the same request would otherwise have its OLD parent baked
+ * into the cache entry written here.
+ */
+function entity_forum_unlisted_forum_ids_reset() {
+  backdrop_static_reset('entity_forum_unlisted_forum_ids');
+  backdrop_static_reset('entity_forum_forum_parents');
+  cache_clear_all('entity_forum_unlisted_forum_ids', 'cache');
+}
+
+/**
  * Implements hook_views_query_alter().
  *
  * Applies the forum visibility rules to every View on ANY of the module's
@@ -652,6 +740,15 @@ function entity_forum_private_forum_ids() {
  * are removed for viewers without 'view private entity forum'. This rule has
  * NO opt-out, a view is not a safe place to make an exception to an access
  * gate.
+ *
+ * Listing (forums): a view that filters on 'listed' also loses every forum
+ * BENEATH an unlisted one (entity_forum_unlisted_forum_ids()). Without it
+ * the hierarchy style re-parents the orphans and hiding a container
+ * promotes its children to the top of the index. Deliberately flat for
+ * everyone including administrators: this is presentation, not access, and
+ * the index is a members' menu rather than an admin surface. Admins see
+ * every forum on the admin overview, which carries no 'listed' filter and
+ * so is untouched. Opt-out is dropping the 'listed' filter.
  *
  * Listing (topics): only normally listed topics appear, plus admin_only
  * topics when the viewer is a moderator. Unlisted topics (e.g.
@@ -690,7 +787,14 @@ function entity_forum_views_query_alter(&$view, &$query) {
     if (!$may_see_private) {
       $query->add_where(0, 'entity_forum_forum.visibility', 'private', '<>');
     }
-    // The listing rules below are about topics; nothing else applies here.
+    // The row's own listed flag stays an ordinary, editable view filter; what
+    // the module adds is that it takes the forum's descendants with it.
+    if (isset($view->filter['listed'])) {
+      if ($unlisted = entity_forum_unlisted_forum_ids()) {
+        $query->add_where(0, 'entity_forum_forum.forum_id', $unlisted, 'NOT IN');
+      }
+    }
+    // The remaining listing rules are about topics; nothing else applies here.
     return;
   }
 
@@ -1757,6 +1861,36 @@ function entity_forum_topic_load($topic_id) {
 function entity_forum_reply_load($reply_id) {
   $reply = entity_load('entity_forum_reply', $reply_id);
   return $reply ? $reply : FALSE;
+}
+
+/**
+ * Returns the internal path of a forum's page.
+ *
+ * THE single definition of where a forum lives. EntityForumForum::uri() is
+ * this function, and every link, breadcrumb crumb and post-submit redirect
+ * that means "the forum's page" resolves through it rather than composing
+ * the path again. Before this existed the string was written out in five
+ * more places, so any change to a forum's address would have had to be
+ * chased through renderers, a Views handler and two confirm forms.
+ *
+ * It takes an ID, not an entity, because the callers that link forums in
+ * bulk deliberately never load them: the breadcrumb trail reads one
+ * fetchAllKeyed() of titles, the sub-forum list a light row query, and the
+ * forums-index Views handler its result row. Requiring an entity here would
+ * turn a forum listing into one entity load per row.
+ *
+ * Sub-paths of a forum (forum/N/new-topic) are NOT built from this. They are
+ * routes this module owns and they stay where hook_menu() puts them; only
+ * the forum's own page is in question.
+ *
+ * @param int $forum_id
+ *   The forum ID.
+ *
+ * @return string
+ *   The internal path, suitable for l(), url() or $form_state['redirect'].
+ */
+function entity_forum_forum_path($forum_id) {
+  return 'forum/' . (int) $forum_id;
 }
 
 /**
@@ -3396,6 +3530,9 @@ function entity_forum_entity_insert($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
   }
+  if ($type === 'entity_forum_forum') {
+    entity_forum_unlisted_forum_ids_reset();
+  }
   if ($type === 'entity_forum_reply') {
     entity_forum_topic_recalculate_stats((int) $entity->topic_id);
   }
@@ -3412,6 +3549,9 @@ function entity_forum_entity_insert($entity, $type) {
 function entity_forum_entity_update($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
+  }
+  if ($type === 'entity_forum_forum') {
+    entity_forum_unlisted_forum_ids_reset();
   }
   if ($type === 'entity_forum_reply') {
     entity_forum_topic_recalculate_stats((int) $entity->topic_id);
@@ -3458,6 +3598,9 @@ function entity_forum_entity_update($entity, $type) {
 function entity_forum_entity_delete($entity, $type) {
   if (in_array($type, array('entity_forum_forum', 'entity_forum_topic', 'entity_forum_reply'), TRUE)) {
     entity_forum_forum_counts_reset();
+  }
+  if ($type === 'entity_forum_forum') {
+    entity_forum_unlisted_forum_ids_reset();
   }
   // Release a deleted forum's icon file. Cascade sub-tree deletes run through
   // the entity controller (entity_forum_forum_delete_forums()), so each

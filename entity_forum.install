@@ -540,7 +540,7 @@ function entity_forum_schema() {
         'size' => 'tiny',
         'not null' => TRUE,
         'default' => 1,
-        'description' => 'Whether the forum appears in the forums index and sub-forum lists. Unlisted forums stay fully usable at their own URL (forum/N) - for forums featured under their own menu link. Independent of status (published).',
+        'description' => 'Whether the forum appears in the forums index and sub-forum lists. Unlisted forums stay fully usable at their own URL (forum/N) - for forums featured under their own menu link. Independent of status (published). An unlisted forum takes its whole sub-tree out of the forums index with it (entity_forum_unlisted_forum_ids()), since the hierarchy style would otherwise promote the orphaned children to root; the children are still listed on their own parent\'s page, so the branch browses normally from inside.',
       ),
     ),
     'primary key' => array('forum_id'),

@@ -6,7 +6,11 @@
  */
 
 /**
- * Returns forum titles keyed by forum_id, for select options.
+ * Returns forum titles keyed by forum_id, in tree order.
+ *
+ * Ordered depth-first (each forum followed by its own sub-forums, siblings
+ * by weight then title) so a picker reads in the same order as the forums
+ * index rather than as one flat alphabetical run.
  *
  * When excluding a forum (the one being edited), its whole descendant
  * sub-tree is excluded too, re-parenting a forum under one of its own
@@ -15,19 +19,85 @@
  * @param int|null $exclude_id
  *   A forum ID to leave out (e.g. the forum being edited, to prevent
  *   self-parenting), along with all of its descendants.
+ * @param bool $indent
+ *   Prefix each title with one dash per level of nesting, the Backdrop
+ *   idiom for showing hierarchy in a select. Off by default because the
+ *   settings page uses this as a TITLE LOOKUP for a table cell, where the
+ *   dashes would render as literal text; select elements pass TRUE.
  *
  * @return array
  *   Options array for a select element.
  */
-function entity_forum_forum_options($exclude_id = NULL) {
-  $options = db_query('SELECT forum_id, title FROM {entity_forum_forum} ORDER BY title')->fetchAllKeyed();
+function entity_forum_forum_options($exclude_id = NULL, $indent = FALSE) {
+  $forums = db_query('SELECT forum_id, title, parent_id FROM {entity_forum_forum} ORDER BY weight, title')->fetchAll();
+
+  $excluded = array();
   if ($exclude_id !== NULL) {
-    unset($options[$exclude_id]);
+    $excluded[(int) $exclude_id] = TRUE;
     foreach (entity_forum_forum_descendants($exclude_id) as $descendant_id) {
-      unset($options[$descendant_id]);
+      $excluded[(int) $descendant_id] = TRUE;
     }
   }
+
+  // Group by parent. A forum whose parent is missing or has been excluded is
+  // treated as a root so it can never drop out of the list entirely - the
+  // same tolerance of messy data as the forums-index hierarchy style.
+  $known = array();
+  foreach ($forums as $forum) {
+    $known[(int) $forum->forum_id] = TRUE;
+  }
+  $children = array();
+  foreach ($forums as $forum) {
+    if (isset($excluded[(int) $forum->forum_id])) {
+      continue;
+    }
+    $parent = (int) $forum->parent_id;
+    if (!isset($known[$parent]) || isset($excluded[$parent])) {
+      $parent = 0;
+    }
+    $children[$parent][] = $forum;
+  }
+
+  $options = array();
+  _entity_forum_forum_options_walk($children, 0, 0, $indent, $options);
   return $options;
+}
+
+/**
+ * Appends one level of the forum tree to a select options array.
+ *
+ * Recursive helper for entity_forum_forum_options(). Carries a visited set
+ * so a cycle in parent_id (corrupt data, never produced by the UI) exhausts
+ * rather than recursing forever.
+ *
+ * @param array $children
+ *   Forum rows grouped by parent ID.
+ * @param int $parent
+ *   The parent whose children to append.
+ * @param int $depth
+ *   Current nesting depth, 0 at the top level.
+ * @param bool $indent
+ *   Whether to prefix titles with dashes.
+ * @param array $options
+ *   The options array being built, by reference.
+ * @param array $seen
+ *   Forum IDs already emitted, by reference; the cycle guard.
+ */
+function _entity_forum_forum_options_walk($children, $parent, $depth, $indent, &$options, &$seen = array()) {
+  if (empty($children[$parent])) {
+    return;
+  }
+  foreach ($children[$parent] as $forum) {
+    $forum_id = (int) $forum->forum_id;
+    if (isset($seen[$forum_id])) {
+      continue;
+    }
+    $seen[$forum_id] = TRUE;
+    $options[$forum_id] = $indent && $depth
+      ? str_repeat('-', $depth) . ' ' . $forum->title
+      : $forum->title;
+    _entity_forum_forum_options_walk($children, $forum_id, $depth + 1, $indent, $options, $seen);
+  }
 }
 
 /**
@@ -60,7 +130,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['parent_id'] = array(
     '#type' => 'select',
     '#title' => t('Parent forum'),
-    '#options' => array(0 => t('- None -')) + entity_forum_forum_options($forum->id()),
+    '#options' => array(0 => t('- None -')) + entity_forum_forum_options($forum->id(), TRUE),
     '#default_value' => $forum->parent_id,
   );
 
@@ -127,7 +197,7 @@ function entity_forum_forum_form($form, &$form_state, $forum = NULL) {
   $form['listed'] = array(
     '#type' => 'checkbox',
     '#title' => t('Appear in forum list'),
-    '#description' => t('When unticked, the forum is hidden from the forums index and sub-forum lists but stays fully usable at its own URL - for a forum you feature under its own menu link. Independent of Published.'),
+    '#description' => t('When unticked, the forum is hidden from the forums index and sub-forum lists, <strong>and so is everything beneath it</strong>, but the whole branch stays fully usable at its own URLs - for a section you feature under its own menu link or page. Sub-forums are still listed on their own parent\'s page, so the branch browses normally once you are inside it. Independent of Published.'),
     '#default_value' => !empty($forum->listed),
   );
   $form['author_close'] = array(
@@ -684,7 +754,7 @@ function entity_forum_topic_delete_form($form, &$form_state, $topic) {
   return confirm_form(
     $form,
     t('Delete topic %title?', array('%title' => $topic->title)),
-    'forum/' . $topic->forum_id,
+    entity_forum_forum_path($topic->forum_id),
     format_plural($reply_count,
       'One reply will also be deleted. This action cannot be undone.',
       '@count replies will also be deleted. This action cannot be undone.'),
@@ -702,7 +772,7 @@ function entity_forum_topic_delete_form_submit($form, &$form_state) {
   // Replies are cascaded by entity_forum_entity_delete().
   $topic->delete();
   backdrop_set_message(t('Topic %title and its replies have been deleted.', array('%title' => $title)));
-  $form_state['redirect'] = 'forum/' . $forum_id;
+  $form_state['redirect'] = entity_forum_forum_path($forum_id);
 }
 
 /**
@@ -1090,7 +1160,7 @@ function entity_forum_node_discussion_form($form, &$form_state, $type = NULL) {
     '#type' => 'select',
     '#title' => t('Discussion forum'),
     '#description' => t('The forum the discussion topics are created in.'),
-    '#options' => entity_forum_forum_options(),
+    '#options' => entity_forum_forum_options(NULL, TRUE),
     '#default_value' => $placement ? $placement['forum'] : NULL,
     '#required' => TRUE,
   );
