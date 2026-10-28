@@ -235,34 +235,68 @@ function entity_forum_topic_page($topic) {
     );
   }
 
+  // A restricted topic type shows everyone else a preview: the start of the
+  // body, the type's preview fields (field access hides the rest) and the
+  // type's message in place of the replies.
+  $full = entity_forum_user_sees_full_topic($topic->type, NULL, $topic->author_uid);
+
   // The opening post. Every sibling on this page carries an explicit
   // #weight: element_children() sorts through an UNSTABLE sort as soon as
   // any one of them has a #weight, so leaving some weightless lets them
   // reorder arbitrarily (see _entity_forum_topic_replies_build()).
-  $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
+  $types = entity_forum_topic_types();
+  $type_settings = $types[$topic->type];
+  if ($full) {
+    $topic_fields = _entity_forum_render_fields('entity_forum_topic', array($topic->id() => $topic));
+    $topic_fields = isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '';
+  }
+  else {
+    $topic_fields = _entity_forum_render_preview_fields($topic, $type_settings->preview_first_value);
+  }
+  $body_html = $full ? _entity_forum_post_body_html('entity_forum_topic', $topic) : _entity_forum_post_preview_html($topic);
+
   $highlight = _entity_forum_post_report_highlight($topic, 'topic', $topic->id());
   $build['topic'] = array(
     '#weight' => 0,
     '#prefix' => '<div class="entity-forum-topic-wrapper"><h2 class="entity-forum-topic-title">' . check_plain($topic->title) . '</h2>',
     '#suffix' => '</div>',
-    '#markup' => _entity_forum_render_post(
-      _entity_forum_post_body_html('entity_forum_topic', $topic),
+  );
+  if (!$full && !$type_settings->preview_author) {
+    // The post shell always carries the byline and avatar, so a preview that
+    // leaves out who posted it is a plainer block of its own.
+    $build['topic']['#markup'] = '<div class="entity-forum-post entity-forum-preview">'
+      . '<div class="entity-forum-preview-date">' . format_date($topic->created, 'short') . '</div>'
+      . ($body_html !== '' ? '<div class="entity-forum-content">' . $body_html . '</div>' : '')
+      . $topic_fields
+      . '</div>';
+  }
+  else {
+    $build['topic']['#markup'] = _entity_forum_render_post(
+      $body_html,
       $topic->author_uid,
       $topic->created,
       'topic-' . $topic->id(),
       _entity_forum_post_links('topic', $topic, $topic),
       $highlight['prefix'],
       $topic->author_name,
-      isset($topic_fields[$topic->id()]) ? $topic_fields[$topic->id()] : '',
+      $topic_fields,
       $highlight['classes'],
       'entity_forum_topic',
       $topic->bundle()
-    ),
-  );
+    );
+  }
 
   // Replies and the reply/report actions, shared with the node
   // discussion rendering (comments replacement).
-  $build += _entity_forum_topic_replies_build($topic);
+  if ($full) {
+    $build += _entity_forum_topic_replies_build($topic);
+  }
+  else {
+    $build['restricted'] = array(
+      '#weight' => 10,
+      '#markup' => _entity_forum_restricted_message($topic),
+    );
+  }
 
   // Let other modules alter the topic page (posts, reply form and all).
   backdrop_alter('entity_forum_topic_page', $build, $topic);
@@ -286,6 +320,13 @@ function entity_forum_topic_page($topic) {
  */
 function _entity_forum_topic_replies_build($topic) {
   $build = array();
+
+  // Replies are read straight from the table below, so the restricted-type
+  // rule has to be applied here too, for node discussions as much as the
+  // topic page.
+  if (!entity_forum_user_sees_full_topic($topic->type, NULL, $topic->author_uid)) {
+    return $build;
+  }
 
   // Replies, threaded Facebook-style: one visual level, every reply in
   // a chain nests under its thread root, indented once. The pager works
@@ -994,6 +1035,97 @@ function _entity_forum_post_body_html($entity_type, $entity) {
   }
   $element = field_view_field($entity_type, $entity, 'entity_forum_body', array('label' => 'hidden'));
   return trim(backdrop_render($element));
+}
+
+/**
+ * Renders the start of a topic's body, for users who get the preview.
+ *
+ * The body's own summary where it has one, otherwise its first 300
+ * characters, through the same text format as the full post.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic.
+ *
+ * @return string
+ *   Sanitized HTML; '' for a type with no body.
+ */
+function _entity_forum_post_preview_html($topic) {
+  $types = entity_forum_topic_types();
+  if (empty($types[$topic->type]->preview_body) || !field_info_instance('entity_forum_topic', 'entity_forum_body', $topic->bundle())) {
+    return '';
+  }
+  $element = field_view_field('entity_forum_topic', $topic, 'entity_forum_body', array(
+    'label' => 'hidden',
+    'type' => 'text_summary_or_trimmed',
+    'settings' => array('trim_length' => 300),
+  ));
+  return trim(backdrop_render($element));
+}
+
+/**
+ * Renders a topic's preview fields, for users who get the preview.
+ *
+ * Field access has already removed every field the type does not list as
+ * public; this can further cut each one down to its first item.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic.
+ * @param bool $first_only
+ *   Keep only the first item of each field.
+ *
+ * @return string
+ *   Rendered HTML, '' when there is nothing to show.
+ */
+function _entity_forum_render_preview_fields($topic, $first_only) {
+  // Cut the VALUES down, on a copy, rather than the rendered children: a
+  // formatter such as a carousel renders every item as one element, so
+  // trimming its output would still show them all.
+  if ($first_only) {
+    $topic = clone $topic;
+    foreach (field_info_instances('entity_forum_topic', $topic->type) as $field_name => $instance) {
+      if (!empty($topic->{$field_name})) {
+        foreach ($topic->{$field_name} as $langcode => $items) {
+          $topic->{$field_name}[$langcode] = array_slice($items, 0, 1);
+        }
+      }
+    }
+  }
+
+  $entities = array($topic->id() => $topic);
+  field_attach_prepare_view('entity_forum_topic', $entities, 'full');
+  entity_prepare_view('entity_forum_topic', $entities);
+  $view = field_attach_view('entity_forum_topic', $topic, 'full');
+  unset($view['entity_forum_body']);
+
+  $html = trim(backdrop_render($view));
+  return $html === '' ? '' : '<div class="entity-forum-fields">' . $html . '</div>';
+}
+
+/**
+ * The notice shown in place of a restricted topic's replies.
+ *
+ * The topic type's own message, with a log in link for anonymous visitors
+ * that returns them to the topic.
+ *
+ * @param EntityForumTopic $topic
+ *   The topic.
+ *
+ * @return string
+ *   Sanitized HTML.
+ */
+function _entity_forum_restricted_message($topic) {
+  $types = entity_forum_topic_types();
+  $message = $types[$topic->type]->restricted_message;
+  $html = $message !== '' ? filter_xss_admin($message) : '<p>' . t('The full @type is only available to some members.', array('@type' => backdrop_strtolower($types[$topic->type]->label))) . '</p>';
+
+  if (user_is_anonymous()) {
+    $html .= '<p>' . l(t('Log in'), 'user/login', array(
+      'query' => array('destination' => 'topic/' . $topic->id()),
+      'attributes' => array('class' => array('button')),
+    )) . '</p>';
+  }
+
+  return '<div class="entity-forum-restricted">' . $html . '</div>';
 }
 
 /**

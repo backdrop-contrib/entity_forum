@@ -1537,6 +1537,82 @@ function entity_forum_topic_type_form($form, &$form_state, $topic_type = NULL) {
     '#rows' => 3,
   );
 
+  $form['restriction'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Who sees the full topic'),
+    '#description' => t('Let anyone who can reach these topics browse them, but keep the whole topic, every field and the replies, for users with this type\'s <em>view full topics</em> permission. Everyone else sees the title, the start of the body and the fields chosen below. Authors and moderators always see the full topic.'),
+    '#collapsible' => TRUE,
+    '#collapsed' => $is_new || empty($topic_type->restrict_full),
+  );
+  $form['restriction']['restrict_full'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Restrict the full topic'),
+    '#default_value' => !$is_new && !empty($topic_type->restrict_full),
+    '#description' => t('Once saved, grant <em>@type: view full topics</em> on the permissions page to the roles that should see everything.', array(
+      '@type' => $is_new ? t('Name') : $topic_type->label,
+    )),
+  );
+
+  $form['restriction']['preview_body'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show the start of the body'),
+    '#default_value' => $is_new || !empty($topic_type->preview_body),
+    '#description' => t('Its summary, or the first 300 characters. Untick to show only the title and the fields below. Listings are unaffected: what they show is set in the view.'),
+    '#states' => array(
+      'visible' => array(':input[name="restrict_full"]' => array('checked' => TRUE)),
+    ),
+  );
+
+  $form['restriction']['preview_author'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show the author'),
+    '#default_value' => $is_new || !empty($topic_type->preview_author),
+    '#description' => t('Untick to leave out the poster\'s name and picture; the date is still shown.'),
+    '#states' => array(
+      'visible' => array(':input[name="restrict_full"]' => array('checked' => TRUE)),
+    ),
+  );
+
+  $field_options = array();
+  if (!$is_new) {
+    foreach (field_info_instances('entity_forum_topic', $topic_type->type) as $field_name => $instance) {
+      if ($field_name !== 'entity_forum_body') {
+        $field_options[$field_name] = check_plain($instance['label']);
+      }
+    }
+  }
+  $form['restriction']['preview_fields'] = array(
+    '#type' => 'checkboxes',
+    '#title' => t('Fields everyone can see'),
+    '#options' => $field_options,
+    '#default_value' => $is_new ? array() : $topic_type->preview_fields,
+    '#description' => $field_options ? t('Everything else, contact details for instance, is hidden from them wherever it is displayed, Views included.') : t('This type has no fields yet beyond the body.'),
+    '#access' => !empty($field_options),
+    '#states' => array(
+      'visible' => array(':input[name="restrict_full"]' => array('checked' => TRUE)),
+    ),
+  );
+  $form['restriction']['preview_first_value'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Only the first item of each of these fields'),
+    '#default_value' => !$is_new && !empty($topic_type->preview_first_value),
+    '#description' => t('The first photo of several, for instance. On the topic page only; listings show what their view is set to show.'),
+    '#access' => !empty($field_options),
+    '#states' => array(
+      'visible' => array(':input[name="restrict_full"]' => array('checked' => TRUE)),
+    ),
+  );
+  $form['restriction']['restricted_message'] = array(
+    '#type' => 'textarea',
+    '#title' => t('Message in place of the full topic'),
+    '#default_value' => $is_new ? '' : $topic_type->restricted_message,
+    '#rows' => 3,
+    '#description' => t('Shown below the preview, for instance how to join. HTML is allowed. Visitors who are not logged in also get a log in link.'),
+    '#states' => array(
+      'visible' => array(':input[name="restrict_full"]' => array('checked' => TRUE)),
+    ),
+  );
+
   $form['actions'] = array('#type' => 'actions');
   $form['actions']['submit'] = array(
     '#type' => 'submit',
@@ -1555,6 +1631,12 @@ function entity_forum_topic_type_form_submit($form, &$form_state) {
     'type' => $form_state['values']['type'],
     'label' => $form_state['values']['label'],
     'description' => $form_state['values']['description'],
+    'restrict_full' => !empty($form_state['values']['restrict_full']),
+    'preview_body' => !empty($form_state['values']['preview_body']),
+    'preview_author' => !empty($form_state['values']['preview_author']),
+    'preview_first_value' => !empty($form_state['values']['preview_first_value']),
+    'preview_fields' => isset($form_state['values']['preview_fields']) ? array_keys(array_filter($form_state['values']['preview_fields'])) : array(),
+    'restricted_message' => $form_state['values']['restricted_message'],
   );
   entity_forum_topic_type_save($type);
   // A new type gets a body field on its topic and reply bundles, like core

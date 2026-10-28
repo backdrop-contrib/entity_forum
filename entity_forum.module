@@ -806,6 +806,19 @@ function entity_forum_views_query_alter(&$view, &$query) {
     }
   }
 
+  // Restricted topic types: their replies are part of the full topic, so a
+  // user who only gets the preview gets none of them, here as on the page.
+  // Never opted out of. Their own topics stay out of the subquery.
+  if ($base === 'entity_forum_reply' && ($restricted = entity_forum_restricted_topic_types())) {
+    $hidden = db_select('entity_forum_topic', 'eft_restricted');
+    $hidden->fields('eft_restricted', array('topic_id'));
+    $hidden->condition('eft_restricted.type', $restricted, 'IN');
+    if ($GLOBALS['user']->uid > 0) {
+      $hidden->condition('eft_restricted.author_uid', $GLOBALS['user']->uid, '<>');
+    }
+    $query->add_where(0, 'entity_forum_reply.topic_id', $hidden, 'NOT IN');
+  }
+
   // Published status: held replies are hidden by status = 0 (their topic's
   // listing stays normal), so a view without a Published filter would list
   // them. Opt-out by defining a 'status' filter, mirroring 'listing' below,
@@ -970,6 +983,14 @@ function entity_forum_topic_types() {
       'type' => $machine_name,
       'label' => (string) $config->get('label'),
       'description' => (string) $config->get('description'),
+      'restrict_full' => (bool) $config->get('restrict_full'),
+      // Defaults to showing it: absent on every type saved before the
+      // setting existed.
+      'preview_body' => $config->get('preview_body') === NULL ? TRUE : (bool) $config->get('preview_body'),
+      'preview_author' => $config->get('preview_author') === NULL ? TRUE : (bool) $config->get('preview_author'),
+      'preview_first_value' => (bool) $config->get('preview_first_value'),
+      'preview_fields' => array_values((array) $config->get('preview_fields')),
+      'restricted_message' => (string) $config->get('restricted_message'),
     );
   }
 
@@ -978,6 +999,12 @@ function entity_forum_topic_types() {
       'type' => ENTITY_FORUM_TOPIC_TYPE_DEFAULT,
       'label' => t('Topic'),
       'description' => '',
+      'restrict_full' => FALSE,
+      'preview_body' => TRUE,
+      'preview_author' => TRUE,
+      'preview_first_value' => FALSE,
+      'preview_fields' => array(),
+      'restricted_message' => '',
     );
   }
 
@@ -1156,8 +1183,89 @@ function entity_forum_topic_type_save($type) {
   $config->set('type', $type->type);
   $config->set('label', $type->label);
   $config->set('description', isset($type->description) ? (string) $type->description : '');
+  $config->set('restrict_full', !empty($type->restrict_full));
+  $config->set('preview_body', !isset($type->preview_body) || !empty($type->preview_body));
+  $config->set('preview_author', !isset($type->preview_author) || !empty($type->preview_author));
+  $config->set('preview_first_value', !empty($type->preview_first_value));
+  $config->set('preview_fields', isset($type->preview_fields) ? array_values((array) $type->preview_fields) : array());
+  $config->set('restricted_message', isset($type->restricted_message) ? (string) $type->restricted_message : '');
   $config->save();
   entity_forum_topic_types_reset();
+}
+
+/**
+ * Whether a user may see the whole of a topic of a given type.
+ *
+ * A topic type can keep its full topics for one audience, a classified ad
+ * whose listing anyone may browse but whose contact details are for
+ * members. Everyone else gets a preview: the title, the start of the body
+ * and the fields the type names as public. THE test for it; the field
+ * access, reply access, Views query alter and topic page all call this.
+ *
+ * @param string $type
+ *   The topic type machine name.
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ * @param int|null $author_uid
+ *   The topic's author, who always sees their own topic in full.
+ *
+ * @return bool
+ *   TRUE if the user sees the full topic.
+ */
+function entity_forum_user_sees_full_topic($type, $account = NULL, $author_uid = NULL) {
+  if (!isset($account)) {
+    $account = $GLOBALS['user'];
+  }
+  $types = entity_forum_topic_types();
+  if (empty($types[$type]) || empty($types[$type]->restrict_full)) {
+    return TRUE;
+  }
+  if ($account->uid > 0 && $author_uid !== NULL && (int) $author_uid === (int) $account->uid) {
+    return TRUE;
+  }
+  return user_access('view full ' . $type . ' entity forum topics', $account)
+    || entity_forum_user_is_moderator($account);
+}
+
+/**
+ * Topic types whose full topics the user may not see.
+ *
+ * @param object|null $account
+ *   The user to check; defaults to the current user.
+ *
+ * @return array
+ *   Machine names; empty for most users on most sites.
+ */
+function entity_forum_restricted_topic_types($account = NULL) {
+  $restricted = array();
+  foreach (entity_forum_topic_types() as $machine_name => $type) {
+    if (!entity_forum_user_sees_full_topic($machine_name, $account)) {
+      $restricted[] = $machine_name;
+    }
+  }
+  return $restricted;
+}
+
+/**
+ * Implements hook_field_access().
+ *
+ * Fields on a restricted topic type are hidden from users who may not see
+ * the full topic, wherever they are displayed, Views included, unless the
+ * type lists them as preview fields. The body stays visible: listings show
+ * its trimmed start, and the topic page trims it for these users itself.
+ */
+function entity_forum_field_access($op, $field, $entity_type, $entity, $account) {
+  if ($op !== 'view' || $entity_type !== 'entity_forum_topic' || empty($entity) || empty($entity->type)) {
+    return TRUE;
+  }
+  if ($field['field_name'] === 'entity_forum_body') {
+    return TRUE;
+  }
+  if (entity_forum_user_sees_full_topic($entity->type, $account, isset($entity->author_uid) ? $entity->author_uid : NULL)) {
+    return TRUE;
+  }
+  $types = entity_forum_topic_types();
+  return in_array($field['field_name'], $types[$entity->type]->preview_fields);
 }
 
 /**
@@ -1425,7 +1533,26 @@ function entity_forum_permission() {
       'title' => t('Moderate Entity Forum'),
       'description' => t('See the moderation panels and queue, approve posts held for review, view moderator-only topics, and set member posting statuses. Combine with the administer topic/reply permissions for full moderator rights.'),
     ),
-  );
+  ) + entity_forum_topic_type_permissions();
+}
+
+/**
+ * Per-type permissions for topic types that restrict their full topics.
+ *
+ * Only offered for types that use it, so the permissions page does not
+ * fill with switches that do nothing.
+ */
+function entity_forum_topic_type_permissions() {
+  $permissions = array();
+  foreach (entity_forum_topic_types() as $machine_name => $type) {
+    if (!empty($type->restrict_full)) {
+      $permissions['view full ' . $machine_name . ' entity forum topics'] = array(
+        'title' => t('%type: view full topics', array('%type' => $type->label)),
+        'description' => t('See the whole of a %type topic, every field and its replies. Without it, only the preview the topic type allows.', array('%type' => $type->label)),
+      );
+    }
+  }
+  return $permissions;
 }
 
 /**
@@ -2329,6 +2456,13 @@ function entity_forum_reply_access($op, $reply = NULL, $account = NULL, $entity_
       return user_access('create entity forum reply', $account);
 
     case 'view':
+      // Replies belong to the full topic: a preview never includes them.
+      if ($reply && !empty($reply->topic_id)) {
+        $topic = db_query('SELECT type, author_uid FROM {entity_forum_topic} WHERE topic_id = :id', array(':id' => $reply->topic_id))->fetchObject();
+        if ($topic && !entity_forum_user_sees_full_topic($topic->type, $account, $topic->author_uid)) {
+          return FALSE;
+        }
+      }
       return TRUE;
 
     case 'update':
@@ -2403,6 +2537,7 @@ function entity_forum_reply_create_access($topic) {
   }
   return !$topic->closed
     && entity_forum_topic_view_access($topic)
+    && entity_forum_user_sees_full_topic($topic->type, NULL, $topic->author_uid)
     && user_access('create entity forum reply')
     && entity_forum_user_posting_status() !== ENTITY_FORUM_POSTING_SUSPENDED;
 }

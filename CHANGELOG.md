@@ -4,7 +4,19 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
-## 1.0.0-beta3 (unreleased)
+## 1.0.0 (unreleased)
+
+- **Restricted topic types.** A topic type can keep its full topics for
+  users with a new per-type "view full topics" permission. Everyone else
+  sees a preview the type configures: title, optional start of the body,
+  chosen fields (optionally first item only), optional author, and a message
+  with a log in link. Authors and moderators always see the full topic.
+- Hidden fields are hidden everywhere, Views included; replies and the reply
+  form are hidden too. Off for existing types. Clear caches after updating.
+
+## 1.0.0-beta3 (2026-08-07)
+
+Git tag: `1.x-1.0.0-beta3`.
 
 - **The forum icon is now a Views field.** "Forum icon" can be placed in any
   view on the forum base table, and reached from a topic or reply view through
