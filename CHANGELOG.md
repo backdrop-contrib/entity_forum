@@ -4,7 +4,9 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
-## 1.0.1 (unreleased)
+## 1.0.1 (2026-10-31)
+
+Git tag: `1.x-1.0.1`.
 
 ### Changed
 - Forums index: the "Last active" column is centred, matching the counts.
