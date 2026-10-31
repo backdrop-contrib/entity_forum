@@ -281,3 +281,23 @@ h2.entity-forum-topic-title {
     color: #fff;
     text-decoration: none;
 }
+
+/*-----Narrow screens -------------------------------*/
+
+/* Smaller author pictures and forum icons, to give the list columns room.
+   720px matches core's priority-low breakpoint. */
+@media screen and (max-width: 720px) {
+    .entity-forum-topics .entity-forum-avatar-img {
+        width: 32px;
+        height: auto;
+    }
+    .entity-forum-icon-img {
+        max-width: 48px;
+        height: auto;
+    }
+    /* The dates set the column width otherwise, whatever the picture size. */
+    p.forum-topic-started,
+    p.forum-topic-last-active {
+        white-space: normal;
+    }
+}

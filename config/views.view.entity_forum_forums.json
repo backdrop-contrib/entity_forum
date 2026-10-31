@@ -63,7 +63,7 @@
                             "responsive": ""
                         },
                         "forum_last_active": {
-                            "align": "",
+                            "align": "views-align-center",
                             "separator": "",
                             "empty_column": 0,
                             "responsive": ""

@@ -4,7 +4,17 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
-## 1.0.0 (unreleased)
+## 1.0.1 (unreleased)
+
+### Changed
+- Forums index: the "Last active" column is centred, matching the counts.
+  Revert the Forums view to pick it up.
+- Narrow screens (720px and below): smaller author pictures in topic lists,
+  smaller forum icons, and list dates wrap, giving the columns more room.
+
+## 1.0.0 (2026-10-28)
+
+Git tag: `1.x-1.0.0`.
 
 - **Restricted topic types.** A topic type can keep its full topics for
   users with a new per-type "view full topics" permission. Everyone else
