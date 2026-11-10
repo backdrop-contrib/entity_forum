@@ -410,6 +410,8 @@ function entity_forum_autoload_info() {
     'entity_forum_handler_field_forum_icon' => 'views/entity_forum_handler_field_forum_icon.inc',
     'entity_forum_handler_area_post_link' => 'views/entity_forum_handler_area_post_link.inc',
     'entity_forum_handler_area_moderation_panel' => 'views/entity_forum_handler_area_moderation_panel.inc',
+    'entity_forum_handler_filter_search' => 'views/entity_forum_handler_filter_search.inc',
+    'entity_forum_handler_filter_forum_tree' => 'views/entity_forum_handler_filter_forum_tree.inc',
     'entity_forum_plugin_style_forum_hierarchy' => 'views/entity_forum_plugin_style_forum_hierarchy.inc',
   );
 }
@@ -524,6 +526,32 @@ function entity_forum_views_data_alter(&$data) {
       ENTITY_FORUM_LISTING_ADMIN_ONLY => t('Moderators only'),
       ENTITY_FORUM_LISTING_UNLISTED => t('Unlisted'),
     );
+  }
+
+  // Forum search: words in a topic's title, opening post or replies, and a
+  // forum choice that takes in its sub-forums. Used by the shipped
+  // entity_forum_search view (forums/search); available to any topic view.
+  if (isset($data['entity_forum_topic'])) {
+    $data['entity_forum_topic']['search'] = array(
+      'title' => t('Search text'),
+      'help' => t("Topics containing every word entered, in the title, the opening post or (optionally) a published reply."),
+      'filter' => array(
+        'handler' => 'entity_forum_handler_filter_search',
+        'real field' => 'topic_id',
+      ),
+    );
+  }
+  foreach (array('entity_forum_topic', 'entity_forum_reply') as $table) {
+    if (isset($data[$table])) {
+      $data[$table]['forum_tree'] = array(
+        'title' => t('Forum (including sub-forums)'),
+        'help' => t('The chosen forums and every forum beneath them.'),
+        'filter' => array(
+          'handler' => 'entity_forum_handler_filter_forum_tree',
+          'real field' => 'forum_id',
+        ),
+      );
+    }
   }
 
   // The forum icon as a field in its own right. The forums index gets its
@@ -3060,8 +3088,9 @@ function entity_forum_user_display_name($account) {
  *   viewer may access profiles.
  * - Deleted account (negative/dangling uid): the stored author_name
  *   snapshot with a "(no longer a member)" suffix.
- * - No information at all: "No longer a member" (e.g. authors that were
- *   already deleted from the old WordPress site before migration).
+ * - No information at all: the "Former member name" setting, default
+ *   "No longer a member" (e.g. authors that were already deleted from the
+ *   old WordPress site before migration).
  *
  * @param int $uid
  *   The stored author_uid (may be negative or dangling).
@@ -3082,7 +3111,9 @@ function entity_forum_format_author($uid, $author_name = '') {
   if ($author_name !== '' && $author_name !== NULL) {
     return t('@name <span class="entity-forum-former-member">(no longer a member)</span>', array('@name' => $author_name));
   }
-  return '<span class="entity-forum-former-member">' . t('No longer a member') . '</span>';
+  $label = config_get('entity_forum.settings', 'former_member_label');
+  $label = ($label !== NULL && $label !== '') ? check_plain($label) : t('No longer a member');
+  return '<span class="entity-forum-former-member">' . $label . '</span>';
 }
 
 /**
@@ -4186,7 +4217,104 @@ function entity_forum_views_pre_render(&$view) {
   }
   // The public forums index carries the frontend forum styles (the title /
   // description / private-marker / moderation-panel classes).
-  if ($view->name === 'entity_forum_forums') {
+  if ($view->name === 'entity_forum_forums' || $view->name === 'entity_forum_search') {
     backdrop_add_css($module_path . '/css/entity_forum.css');
   }
+  // The search box above the forums index page (not its other displays).
+  if ($view->name === 'entity_forum_forums' && $view->current_display === 'page' && entity_forum_search_box_enabled()) {
+    $box = backdrop_get_form('entity_forum_search_box_form');
+    $view->attachment_before = backdrop_render($box) . $view->attachment_before;
+  }
+}
+
+/**
+ * Whether the forum search box is shown on the forums index and forum pages.
+ *
+ * @return bool
+ *   TRUE unless switched off in the settings, or the search view is missing
+ *   or disabled (a box leading to a page not found helps nobody).
+ */
+function entity_forum_search_box_enabled() {
+  if (config_get('entity_forum.settings', 'search_box') === FALSE) {
+    return FALSE;
+  }
+  $view = views_get_view('entity_forum_search');
+  return $view && empty($view->disabled) && isset($view->display['page']);
+}
+
+/**
+ * Splits a search phrase into the words a topic must contain.
+ *
+ * Words shorter than two characters are dropped: the body is searched as
+ * stored, markup included, so one letter would match nearly every post. At
+ * most eight words are used, each a separate condition on the query.
+ *
+ * @param string $text
+ *   The phrase as entered.
+ *
+ * @return string[]
+ *   The words, lower-cased and de-duplicated.
+ */
+function entity_forum_search_words($text) {
+  $words = preg_split('/\s+/u', backdrop_strtolower(trim($text)), -1, PREG_SPLIT_NO_EMPTY);
+  $words = array_filter(array_unique($words), function ($word) {
+    return backdrop_strlen($word) >= 2;
+  });
+  return array_slice(array_values($words), 0, 8);
+}
+
+/**
+ * Form constructor: the forum search box.
+ *
+ * A GET form posting straight to the search page (forums/search), so a
+ * search is an ordinary link that can be bookmarked or shared, and needs no
+ * token: it changes nothing. On a forum page the forum is passed along, and
+ * the search page narrows to it and its sub-forums.
+ *
+ * @param EntityForumForum|null $forum
+ *   The forum being viewed, or NULL on the forums index.
+ *
+ * @ingroup forms
+ */
+function entity_forum_search_box_form($form, &$form_state, $forum = NULL) {
+  $form['#action'] = url('forums/search');
+  $form['#method'] = 'get';
+  $form['#token'] = FALSE;
+  $form['#attributes']['class'][] = 'entity-forum-search-box';
+  $form['#attributes']['role'] = 'search';
+  $form['#after_build'][] = 'entity_forum_search_box_form_after_build';
+
+  $form['search'] = array(
+    '#type' => 'search',
+    '#title' => $forum ? t('Search this forum') : t('Search the forums'),
+    '#title_display' => 'invisible',
+    '#size' => 30,
+    '#maxlength' => 128,
+    '#attributes' => array('placeholder' => $forum ? t('Search this forum') : t('Search the forums')),
+  );
+  if ($forum) {
+    $form['forum'] = array(
+      '#type' => 'hidden',
+      '#value' => $forum->id(),
+    );
+  }
+  $form['actions'] = array('#type' => 'actions');
+  $form['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Search'),
+    // No name: the button's value would otherwise land in the query string.
+    '#name' => '',
+  );
+  return $form;
+}
+
+/**
+ * After-build callback: drops Form API's hidden fields from the search box.
+ *
+ * The box is a plain GET form handled by the search view, so form_id and
+ * form_build_id would only clutter the result's address.
+ */
+function entity_forum_search_box_form_after_build($form, &$form_state) {
+  unset($form['form_id'], $form['form_build_id'], $form['form_token']);
+  return $form;
 }

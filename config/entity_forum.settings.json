@@ -1,5 +1,7 @@
 {
     "_config_name": "entity_forum.settings",
     "avatar_default_fid": 0,
-    "node_types": {}
+    "former_member_label": "",
+    "node_types": {},
+    "search_box": true
 }

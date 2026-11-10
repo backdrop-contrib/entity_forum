@@ -38,6 +38,9 @@ asking you to fight it.
   the discussion forums stay plain. Replies inherit their topic's type, so a
   reply to an ad can have its own fields too.
 - **Sub-forums** with rolled-up post counts and climbing breadcrumbs.
+- **Search**: a search box on the forums index and each forum finds topics by
+  words in their title, opening post or replies, within one forum or across
+  them all. It searches only what the person searching may read.
 - **Threaded replies**, paged so a conversation is never split across pages.
 - **Private forums**: gated by permission, with topics, replies and file
   attachments all inheriting it.

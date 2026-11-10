@@ -418,6 +418,23 @@ function entity_forum_update_1001() {
 }
 
 /**
+ * Adds the forum search page (the shipped "Forum search" view).
+ *
+ * Installed only when absent, so a site that already has a view of that name
+ * keeps it. The search box setting needs nothing: a missing key means on.
+ */
+function entity_forum_update_1002() {
+  if (config('views.view.entity_forum_search')->isNew()) {
+    config_install_default_config('entity_forum', 'views.view.entity_forum_search');
+    if (module_exists('views')) {
+      views_invalidate_cache();
+    }
+    return t('Added the forum search page at forums/search.');
+  }
+  return t('A view named entity_forum_search already exists; left unchanged.');
+}
+
+/**
  * Implements hook_schema().
  */
 function entity_forum_schema() {

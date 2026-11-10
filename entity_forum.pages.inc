@@ -175,6 +175,13 @@ function entity_forum_forum_page($forum) {
   // A container forum takes no topics, so the list would always be empty —
   // showing "No topics in this forum yet" under a list of sub-forums reads
   // as a fault rather than a design.
+  // Search box: this forum and its sub-forums, results on forums/search.
+  if (entity_forum_search_box_enabled()) {
+    $build['search'] = backdrop_get_form('entity_forum_search_box_form', $forum);
+    // Explicit: unweighted siblings of a form are not reliably kept in order.
+    $build['search']['#weight'] = -10;
+  }
+
   if (!entity_forum_forum_is_container($forum)) {
     $topic_list = entity_forum_forum_topic_list_view($forum);
     $build['topics'] = array(
