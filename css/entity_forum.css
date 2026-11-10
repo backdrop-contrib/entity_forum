@@ -42,6 +42,7 @@ p.forum-topic-last-active {
 }
 
 .view-entity-forum-topics td,
+.view-entity-forum-search td,
 .view-entity-forum-forums td {
     border-color: lightgray;
     border-left: none;
@@ -83,7 +84,8 @@ p.forum-topic-last-active {
 }
 
 /* Small pictures beside names in the topic-list view. */
-.entity-forum-topics .entity-forum-avatar-img {
+.entity-forum-topics .entity-forum-avatar-img,
+.view-entity-forum-search .entity-forum-avatar-img {
 display: inline-block;
     vertical-align: middle;
     border-radius: 100px;
@@ -287,7 +289,8 @@ h2.entity-forum-topic-title {
 /* Smaller author pictures and forum icons, to give the list columns room.
    720px matches core's priority-low breakpoint. */
 @media screen and (max-width: 720px) {
-    .entity-forum-topics .entity-forum-avatar-img {
+    .entity-forum-topics .entity-forum-avatar-img,
+    .view-entity-forum-search .entity-forum-avatar-img {
         width: 32px;
         height: auto;
     }
@@ -300,4 +303,27 @@ h2.entity-forum-topic-title {
     p.forum-topic-last-active {
         white-space: normal;
     }
+}
+
+/*-----Search ---------------------------------------*/
+
+/* The search box above the forums index and each forum's topic list. */
+.entity-forum-search-box > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    align-items: center;
+    margin: 0.5em 0 1em;
+}
+.entity-forum-search-box .form-item,
+.entity-forum-search-box .form-actions {
+    margin: 0;
+}
+.entity-forum-search-box .form-search {
+    max-width: 100%;
+}
+
+/* "in <forum>" under each topic title on the search page. */
+a.entity-forum-search-forum {
+    font-size: 0.875em;
 }

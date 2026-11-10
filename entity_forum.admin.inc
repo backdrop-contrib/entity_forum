@@ -888,6 +888,30 @@ function entity_forum_settings_form($form, &$form_state) {
     ),
   );
 
+  $form['authors'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Post authors'),
+  );
+  $form['authors']['former_member_label'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Former member name'),
+    '#description' => t('Shown as the author of posts whose author is unknown, e.g. accounts already deleted before an import. Leave empty for "No longer a member". Posts whose author name is known still show that name with "(no longer a member)".'),
+    '#default_value' => (string) $config->get('former_member_label'),
+    '#maxlength' => 128,
+  );
+
+  $form['search'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Search'),
+  );
+  $form['search']['search_box'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Show a search box on the forums index and forum pages'),
+    '#description' => t('Results are shown on <a href="@url">the forum search page</a> (the "Forum search" view). On a forum page the box searches that forum and its sub-forums.', array('@url' => url('forums/search'))),
+    // Missing key = on: sites upgraded from earlier versions get the box.
+    '#default_value' => $config->get('search_box') !== FALSE,
+  );
+
   // Content discussions: the comments replacement. Each placement maps a
   // content type to the forum its discussion topics are find-or-created
   // (unlisted) in and rendered below the node. Managed as a list of
@@ -1098,6 +1122,8 @@ function entity_forum_settings_form_submit($form, &$form_state) {
   }
 
   $config->set('avatar_default_fid', $fid);
+  $config->set('former_member_label', trim($form_state['values']['former_member_label']));
+  $config->set('search_box', (bool) $form_state['values']['search_box']);
   $config->save();
   backdrop_set_message(t('The configuration options have been saved.'));
 }

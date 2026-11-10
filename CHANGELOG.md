@@ -4,6 +4,25 @@ Notable changes per release. The unreleased section accumulates change
 summaries between pushes and doubles as the text for commit / release
 descriptions.
 
+## 1.1.0 (2026-11-10)
+
+Git tag: `1.x-1.1.0`.
+
+### Added
+- Forum search: a search page at `forums/search` (the shipped "Forum search"
+  view) finding topics whose title, opening post or published replies
+  contain every word entered, optionally within one forum and its
+  sub-forums, with a result count. Private forums, held topics and
+  replies, and the hidden part of restricted topic types are not searched
+  for people who cannot see them.
+- A search box above the forums index and each forum's topic list (on a
+  forum page it searches that forum). Settings: "Show a search box".
+- Views filters "Search text" and "Forum (including sub-forums)" for topic
+  views; the forum filter is also available on reply views.
+- Update 1002 adds the search page to existing sites.
+- Settings: "Former member name" - the author shown on posts whose author
+  is unknown (default "No longer a member"; e.g. "Anonymous").
+
 ## 1.0.1 (2026-10-31)
 
 Git tag: `1.x-1.0.1`.
